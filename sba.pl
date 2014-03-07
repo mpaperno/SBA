@@ -282,6 +282,7 @@ if ($localRev == $remoteRev) {
 	
 	for $b (@buildConfigs) {
 		$b_count++;
+		$t_count = 0;
 		$cmdRslt = 0;
 		$buildName = $b->{name};
 		$logRoot = $logFolder ."/". $buildName;
@@ -297,13 +298,13 @@ if ($localRev == $remoteRev) {
 			&log("--$b_count-- No updates for $buildName, skipping.");
 			next;
 		} elsif ($b->{clean} eq "" && $b->{build} eq "" && $b->{deploy} eq "" && $b->{distrib} eq "") {
-			&log("--$b_count-- No commands found for $buildName, skipping.");
+			&log(2, "--$b_count-- No commands found for $buildName, skipping.");
 			next;
 		}
 		# is build folder specified in config? make sure it exists
 		if ($b->{dir} ne "") {
 			if (!validateDir($b->{dir})) {
-				&log(1, "--$b_count-- ERROR: Failed to create build directory, skipping this build.");
+				&log(1, "--$b_count-- Failed to create build directory, skipping this build.");
 				next;
 			}
 		}
