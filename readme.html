@@ -1,0 +1,481 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Simple Build Agent (in Perl)</title>
+<link rel="stylesheet" href="etc/podstyle.css" type="text/css" />
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:" />
+</head>
+
+<body>
+
+
+
+<ul id="index">
+  <li><a href="#NAME">NAME</a></li>
+  <li><a href="#DESCRIPTION">DESCRIPTION</a></li>
+  <li><a href="#SYNOPSIS">SYNOPSIS</a></li>
+  <li><a href="#OPTIONS">OPTIONS</a>
+    <ul>
+      <li><a href="#Notification-Options">Notification Options</a></li>
+    </ul>
+  </li>
+  <li><a href="#INSTRUCTIONS">INSTRUCTIONS</a>
+    <ul>
+      <li><a href="#Configuration-File-Details">Configuration File Details</a>
+        <ul>
+          <li><a href="#Example-config-file">Example config file:</a></li>
+          <li><a href="#Structure-of-a-configuration-file">Structure of a configuration file:</a></li>
+          <li><a href="#Per-build-Config-parameters">Per-build Config parameters:</a></li>
+        </ul>
+      </li>
+      <li><a href="#FTP-Distribution">FTP Distribution</a></li>
+      <li><a href="#E-Mail-Notifications">E-Mail Notifications</a></li>
+    </ul>
+  </li>
+  <li><a href="#REQUIRES">REQUIRES</a></li>
+  <li><a href="#AUTHOR">AUTHOR</a></li>
+  <li><a href="#HISTORY">HISTORY</a></li>
+  <li><a href="#Copyright-License-and-Disclaimer">Copyright, License, and Disclaimer</a></li>
+  <li><a href="#POD-ERRORS">POD ERRORS</a></li>
+</ul>
+
+<h1 id="NAME">NAME</h1>
+
+<pre><code><code> Simple Build Agent (in Perl)
+ </code></code></pre>
+
+<h1 id="DESCRIPTION">DESCRIPTION</h1>
+
+<p>Compares a local and remote code repo (SVN for now), and if changes are detected then it can launch build steps using one or more saved configurations (eg. to build different versions of the same code). Each configuration can have up to 5 steps: clean, build, deploy (package), distribute, and finish (final step). All steps are optional. It can also be forced to launch builds, regardless of repo status.</p>
+
+<p>Each step can run any system command, for example <code><code>make</code></code>, along with all required arguments. If you can run it from the command line, then it should work when run via this script.</p>
+
+<p>For distribution of build results (&quot;artifacts&quot;), as an option, a built-in FTP client can be used to upload files to a server.</p>
+
+<p>Finally, a notification e-mail can be sent to multiple recipients, including a full log of the results.</p>
+
+<p>Limitations/TODO:</p>
+
+<dl>
+
+<dt id="Only-checks-the-currently-checked-out-branch-of-a-repo-for-updates.-Does-not-detect-new-branches-tags-etc">- Only checks the currently checked-out branch of a repo for updates. Does not detect new branches/tags/etc.</dt>
+<dd>
+
+</dd>
+<dt id="Can-not-automatically-detect-if-a-version-has-already-been-built-or-not----will-skip-building-if-local-and-remote-repo-versions-match-unless-manually-forced-with-global-force-build-option-or-per-build-force-directive">- Can not automatically detect if a version has already been built or not -- will skip building if local and remote repo versions match, unless manually forced with global <code><code>force-build</code></code> option or per-build <code><code>force</code></code> directive.</dt>
+<dd>
+
+</dd>
+<dt id="Add-Git-support">- Add Git support.</dt>
+<dd>
+
+</dd>
+</dl>
+
+<p>WARNING: The whole point of this program is to execute system commands (scripts) contained in a configuration file. As such, you need to take great care if running configuration files from untrusted sources (like a public code repo). In fact you shouldn&#39;t do it, ever!</p>
+
+<h1 id="SYNOPSIS">SYNOPSIS</h1>
+
+<p>See full <a href="#INSTRUCTIONS">&quot;INSTRUCTIONS&quot;</a> below (run <code><code>sba --man</code></code> if needed).</p>
+
+<pre><code><code> - Create a config file, eg. mybuilds.ini.
+ - Put it in the same folder as you would normally launch builds from.
+ - Run:  sba.pl -c path/to/mybuilds.ini
+
+ Summary: 
+ sba.pl -c &lt;config file&gt; [other options]
+ 
+ </code></code></pre>
+
+<h1 id="OPTIONS">OPTIONS</h1>
+
+<p>Note: all options can appear in the configuration file&#39;s [settings] block using the same names (long versions) as shown here, minus the &quot;--&quot; part. See <a href="#INSTRUCTIONS">&quot;INSTRUCTIONS&quot;</a> below for details about config file format.</p>
+
+<dl>
+
+<dt id="c-file-default:-.-sba.ini"><b>-c</b> &lt;file&gt; <i>(default: ./sba.ini)</i></dt>
+<dd>
+
+<p>Configuration file to use. The path of this file also determines the script&#39;s working directory, which in turn determines the base path for all executed commands (all paths are relative to the working folder).</p>
+
+</dd>
+<dt id="log-folder-or--l-path-default:-.-log"><b>--log-folder or -l</b> [&lt;path&gt;] <i>(default: ./log)</i></dt>
+<dd>
+
+<p>Path for all output logs. <code><code>SBA</code></code> generates its own log (same as what you&#39;d see on the console), plus the output of every command is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. You might want to set it to be inside the build directory, as in the provided examples.</p>
+
+<p>To disable all logging, set this value to blank (eg. <code><code>--log-folder&lt; or </code><code><code>log-folder =</code></code><code> in the config file.</code></code></p>
+
+</dd>
+<dt id="force-build-or---force-or--f-default:-0-false"><b>--force-build or --force or -f</b> <i>(default: 0 (false))</i></dt>
+<dd>
+
+<p>Always (re-)build even if no new repo version detected. This can also be specified per build config (see config file details, below).</p>
+
+</dd>
+<dt id="quiet-or--q"><b>--quiet or -q</b></dt>
+<dd>
+
+<p>Do not print anything to the console (STDOUT/STDERR). Output is still printed to log file (if enabled), and sent in a notification (if enabled).</p>
+
+</dd>
+<dt id="debug-or--d"><b>--debug or -d</b></dt>
+<dd>
+
+<p>Output extra runtime details.</p>
+
+</dd>
+<dt id="help-or--h-or"><b>--help or -h or -?</b></dt>
+<dd>
+
+<p>Print usage summary and options.</p>
+
+</dd>
+<dt id="man"><b>--man</b></dt>
+<dd>
+
+<p>Print full documentation.</p>
+
+</dd>
+</dl>
+
+<h2 id="Notification-Options">Notification Options</h2>
+
+<p>(Note: all notify-* option names can also be shortened to just the last part after the dash, eg. <code><code>--to</code></code> and <code><code>--server</code></code>)</p>
+
+<dl>
+
+<dt id="notify-to-e-mail-e-mail-...-required-for-notifcation"><b>--notify-to</b> &lt;e-mail[,e-mail][,...]&gt; <i>(required for notifcation)</i></dt>
+<dd>
+
+<p>One or more e-mail addresses separated by commas. Blank to disable notification.</p>
+
+</dd>
+<dt id="notify-server-host.name-required-for-notifcation"><b>--notify-server</b> &lt;host.name&gt; <i>(required for notifcation)</i></dt>
+<dd>
+
+<p>Server to use for sending mail. Blank to disable notification.</p>
+
+</dd>
+<dt id="notify-subj-subject-default:-SBA-Build"><b>--notify-subj</b> &lt;subject&gt; <i>(default: &quot;[SBA] Build&quot;)</i></dt>
+<dd>
+
+<p>Subject prefix. Status details get appended to this.</p>
+
+</dd>
+<dt id="notify-always-default:-0-false"><b>--notify-always</b> <i>(default: 0 (false))</i></dt>
+<dd>
+
+<p>Whether to send notifcation even if no builds were performed (eg. no updates were detected, and nothing was forced). Default is 0 (only notify when something was actually done).</p>
+
+</dd>
+<dt id="notify-from-sender-e-mail-default:-null"><b>--notify-from</b> &lt;sender e-mail&gt; <i>(default:</i> &lt;&gt; <i>(null))</i></dt>
+<dd>
+
+<p>The sender&#39;s e-mail address (also where any bounces would go to).</p>
+
+</dd>
+<dt id="notify-user-username"><b>--notify-user</b> &lt;username&gt;</dt>
+<dd>
+
+</dd>
+<dt id="notify-pass-password"><b>--notify-pass</b> &lt;password&gt;</dt>
+<dd>
+
+<p>Specify if your sever needs authentication.</p>
+
+</dd>
+<dt id="notify-usetls-default:-0-false"><b>--notify-usetls</b> <i>(default: 0 (false))</i></dt>
+<dd>
+
+<p>Use TLS/SSL for server connection. Default is false. Enable if it works with your server.</p>
+
+</dd>
+<dt id="notify-port-port-default:-blank"><b>--notify-port</b> &lt;port #&gt; <i>(default: (blank))</i></dt>
+<dd>
+
+<p>Optional server port. Default (blank) selects autmatically based on plain/ssl transport.</p>
+
+</dd>
+</dl>
+
+<h1 id="INSTRUCTIONS">INSTRUCTIONS</h1>
+
+<p><i>SBA</i> uses a configuration file to determine which tasks to perform. A config file is needed to process any actual build steps you want. The config can provide a set of default actions to perform for each step, and specific actions for individual build(s). In addition, all <i>SBA</i> options can be set in the config file, which is much easier to manage than the command line parameters.</p>
+
+<h2 id="Configuration-File-Details">Configuration File Details</h2>
+
+<h3 id="Example-config-file">Example config file:</h3>
+
+<pre><code><code>  <span class="operator">-----------------------------------------------------------</span>
+  <span class="operator">[</span><span class="variable">settings</span><span class="operator">]</span>
+  <span class="operator">;</span> <span class="variable">these</span> <span class="variable">are</span> <span class="variable">SBA</span> <span class="variable">program</span> <span class="variable">settings</span><span class="operator">,</span> <span class="variable">same</span> <span class="variable">as</span> <span class="variable">command</span><span class="operator">-</span><span class="variable">line</span> <span class="variable">options</span><span class="operator">.</span>
+  <span class="keyword">log</span><span class="operator">-</span><span class="variable">folder</span>    <span class="operator">=</span> <span class="operator">..</span><span class="regex">/build-sba/log</span>
+  <span class="variable">notify</span><span class="operator">-</span><span class="variable">to</span>     <span class="operator">=</span> <span class="variable">me</span><span class="variable">@example</span><span class="operator">.</span><span class="variable">com</span>
+  <span class="variable">notify</span><span class="operator">-</span><span class="variable">server</span> <span class="operator">=</span> <span class="variable">localhost</span>
+  <span class="variable">notify</span><span class="operator">-</span><span class="variable">subj</span>   <span class="operator">=</span> <span class="string">"My builds status:"</span>
+  
+  <span class="operator">[</span><span class="variable">build</span><span class="operator">-</span><span class="keyword">default</span><span class="operator">]</span>
+  <span class="operator">;</span> <span class="keyword">default</span> <span class="variable">settings</span> <span class="keyword">for</span> <span class="variable">all</span> <span class="variable">builds</span>
+  <span class="variable">dir</span>           <span class="operator">=</span> <span class="operator">..</span><span class="regex">/build-sba
+  clean         = make clean clean-bin </span><span class="variable">$common</span><span class="regex">
+  deploy        = 
+  distrib       = sba_ftp ftp.myhost.org user pass /nightly</span> <span class="variable">$dir</span><span class="operator">/</span><span class="variable">$name</span><span class="operator">/*.</span><span class="keyword">hex</span>
+  
+  <span class="operator">;</span> <span class="variable">convenience</span> <span class="variable">macro</span> <span class="variable">to</span> <span class="variable">be</span> <span class="variable">used</span> <span class="variable">in</span> <span class="variable">other</span> <span class="variable">commands</span>
+  <span class="variable">common</span>        <span class="operator">=</span> <span class="variable">BUILD_TYPE</span><span class="operator">=</span><span class="variable">$name</span> <span class="variable">BUILD_PATH</span><span class="operator">=</span><span class="variable">$dir</span>
+  
+  <span class="operator">;</span> <span class="variable">all</span> <span class="variable">other</span> <span class="variable">blocks</span> <span class="variable">define</span> <span class="variable">individual</span> <span class="variable">build</span> <span class="variable">configurations</span>
+  
+  <span class="operator">[</span><span class="variable">board</span><span class="operator">-</span><span class="number">6.0</span><span class="operator">]</span>
+  <span class="variable">build</span>         <span class="operator">=</span> <span class="variable">make</span> <span class="variable">all</span> <span class="operator">-</span><span class="variable">j1</span> <span class="variable">$common</span> <span class="variable">BOARD_VER</span><span class="operator">=</span><span class="number">6</span> <span class="variable">BOARD_REV</span><span class="operator">=</span><span class="number">0</span>
+  
+  <span class="operator">[</span><span class="variable">board</span><span class="operator">-</span><span class="number">6.0</span><span class="operator">-</span><span class="variable">dimu</span><span class="operator">-</span><span class="number">1.1</span><span class="operator">]</span>
+  <span class="variable">name</span>          <span class="operator">=</span> <span class="variable">board</span><span class="operator">-</span><span class="number">6.0</span><span class="operator">-</span><span class="variable">dimu</span>
+  <span class="variable">build</span>         <span class="operator">=</span> <span class="variable">make</span> <span class="variable">all</span> <span class="operator">-</span><span class="variable">j1</span> <span class="variable">$common</span> <span class="variable">BOARD_VER</span><span class="operator">=</span><span class="number">6</span> <span class="variable">BOARD_REV</span><span class="operator">=</span><span class="number">0</span> <span class="variable">DIMU_VER</span><span class="operator">=</span><span class="number">1.1</span>
+  <span class="variable">incremental</span>   <span class="operator">=</span> <span class="number">1</span>
+  <span class="variable">force</span>         <span class="operator">=</span> <span class="number">1</span>
+  <span class="variable">status</span>        <span class="operator">=</span> <span class="number">1</span>
+  <span class="operator">-----------------------------------------------------------</span>
+</code></code></pre>
+
+<h3 id="Structure-of-a-configuration-file">Structure of a configuration file:</h3>
+
+<dl>
+
+<dt id="Config-file-follows-standard-.ini-file-format-specifications">- Config file follows standard <a href="http://search.cpan.org/dist/Config-INI/lib/Config/INI.pm#GRAMMAR">.ini file format</a> specifications.</dt>
+<dd>
+
+</dd>
+<dt id="The-optional-settings-block-describes-all-script-level-options.-Any-setting-listed-in-OPTIONS-above-can-be-used-here-simply-ommit-the-leading----before-the-option-name">- The optional <b>[settings]</b> block describes all script-level options. Any setting listed in <a href="#OPTIONS">&quot;OPTIONS&quot;</a>, above, can be used here (simply ommit the leading -- before the option name).</dt>
+<dd>
+
+</dd>
+<dt id="The-optional-build-default-block-describes-settings-which-are-shared-by-all-build-configs">- The optional <b>[build-default]</b> block describes settings which are shared by all build configs.</dt>
+<dd>
+
+</dd>
+<dt id="Each-subsequent-named-block-describes-a-build-configuration.-Block-names-must-be-unique-and-are-used-as-the-build-name-by-default">- Each subsequent <b>[named-block]</b> describes a build configuration. Block names must be unique, and are used as the build name by default.</dt>
+<dd>
+
+</dd>
+<dt id="Strings-may-contain-embedded-references-macros-to-other-named-params-preceded-with-a-sign.-All-macros-are-evaluated-when-each-config-is-run-vs.-when-the-config-file-is-initially-read-.-Check-the-example-above-to-see-how-the-dir-and-name-variables-are-used-which-correspond-to-the-build-directory-and-build-name-respectively">- Strings may contain embedded references (macros) to other named params, preceded with a $ sign. All macros are evaluated when each config is run (vs. when the config file is initially read). Check the example above to see how the <code><code>$dir</code></code> and <code><code>$name</code></code> variables are used (which correspond to the build directory and build name, respectively).</dt>
+<dd>
+
+</dd>
+<dt id="Any-arbitrary-variable-can-be-declared-and-then-used-as-a-macro-like-common-is-used-in-the-example-above-.-Typical-variable-name-syntax-rules-apply-no-spaces-etc-.-They-can-appear-in-any-order-in-the-confg-file-you-do-not-have-to-declare-a-variable-before-using-it-as-long-as-it-appears-somewhere-in-the-config">- Any arbitrary variable can be declared and then used as a macro (like <code><code>$common</code></code> is used in the example above). Typical variable name syntax rules apply (no spaces, etc). They can appear in any order in the confg file (you do not have to declare a variable before using it, as long as it appears somewhere in the config).</dt>
+<dd>
+
+</dd>
+<dt id="Parameter-and-variable-names-are-CASE-SENSITIVE">- Parameter and variable names are CASE SENSITIVE!</dt>
+<dd>
+
+</dd>
+<dt id="Comments-start-with-a-semi-colon-and-are-ignored">- Comments start with a semi-colon (;) and are ignored.</dt>
+<dd>
+
+</dd>
+</dl>
+
+<h3 id="Per-build-Config-parameters">Per-build Config parameters:</h3>
+
+<p>These can appear in the [build-default] block or any build [named-block]. Note that the command names (clean/build/etc) are just arbitrary, meaning you can run any command you want on any step. There is also one built-in command you can use to distribute files via FTP -- see the <a href="#FTP-Distribution">&quot;FTP Distribution&quot;</a> help topic, below.</p>
+
+<p>Builds are executed in the order in which they appear in the config file. A failed build should not prevent other builds from executing.</p>
+
+<p>Build commands are run consecutively: clean -&gt; build -&gt; deploy -&gt; distrib -&gt; final. They are dependent on each other, meaning a failed step will halt any futher processing of that build configuration.</p>
+
+<dl>
+
+<dt id="name-default:-block-name"><b>name</b> <i>(default: &quot;[<code><code>block-name</code></code>]&quot;)</i></dt>
+<dd>
+
+<p>A unique name for this build. By default the <code><code>name</code></code> is taken from the title of the config [block], but you can set one explicitly as well.</p>
+
+</dd>
+<dt id="dir-default"><b>dir</b> <i>(default: &quot;&quot;)</i></dt>
+<dd>
+
+<p>Root directory for this build. If specified, the script will make sure it exists (and try to create it if it doesn&#39;t) before processing any commands.</p>
+
+</dd>
+<dt id="clean-build-deploy-distrib-final-default"><b>clean</b> / <b>build</b> / <b>deploy</b> / <b>distrib</b> / <b>final</b> <i>(default: &quot;&quot;)</i></dt>
+<dd>
+
+<p>Commands to execute for a package. Commands specified in the [build-default] block will execute for each build, unless the same command is specified in the build-specific [named-block]. A blank value will disable the command. At least one command should be non-blank, otherwise nothing will be done for the build config.</p>
+
+<p>To determine successful execution of a command, it should return a standard system exit code when run. Usually this means zero for sucess and anything else for failure. Almost any common command-line tool will follow this standard.</p>
+
+</dd>
+<dt id="incremental-default:-0-false"><b>incremental</b> <i>(default: 0 (false))</i></dt>
+<dd>
+
+<p>Set to 1 to skip clean step, 0 to always clean first.</p>
+
+</dd>
+<dt id="force-default:-0-false"><b>force</b> <i>(default: 0 (false))</i></dt>
+<dd>
+
+<p>Set to 1 to always run this config, even if no new version was detected. This is like the global --force option, but per-configuration.</p>
+
+</dd>
+<dt id="status-default:-1-enable"><b>status</b> <i>(default: 1 (enable))</i></dt>
+<dd>
+
+<p>Set to 0 to disable this build, 1 to enable.</p>
+
+</dd>
+</dl>
+
+<h2 id="FTP-Distribution">FTP Distribution</h2>
+
+<p>To use the built-in FTP client to upload files, specify the follwing command for any of the build steps:</p>
+
+<p><code><code>sba_ftp ftp_server ftp_user ftp_pass dest_folder [bin|asc] [perm_mask] file/pattern [file/pattern] [...]</code></code></p>
+
+<p>Where:</p>
+
+<dl>
+
+<dt id="ftp_server-ftp_user-ftp_pass"><b>ftp_server</b>, <b>ftp_user</b>, <b>ftp_pass</b></dt>
+<dd>
+
+<p>Are the server host name, user name, and password, respectively. User should have permissions to upload files and, optionally, create directories and modify permissions (chmod).</p>
+
+</dd>
+<dt id="dest-folder"><b>dest folder</b></dt>
+<dd>
+
+<p>Remote folder to upload files into. Relative or absolute, whatever the server will understand. For now all files must go into the same folder. Will attempt to create this folder on remote system if it doesn&#39;t exist (and optionaly apply permission mask using chmod, see below).</p>
+
+</dd>
+<dt id="bin-asc"><b>bin|asc</b></dt>
+<dd>
+
+<p>File transfer mode to use, binary or ascii. This parameter is optional. Default is binary.</p>
+
+</dd>
+<dt id="perm_mask"><b>perm_mask</b></dt>
+<dd>
+
+<p>Numeric permission mask for chmod after file upload or directory creation, if your server requires it (eg. <i>754</i> for public access). This parameter is optional. Set to zero, the default, to disable modifying permissions at all.</p>
+
+</dd>
+<dt id="file-pattern"><b>file/pattern</b></dt>
+<dd>
+
+<p>The file(s) to upload, with absolute or relative path (relative is to current working folder). Can include wildcards, as long as the system is able to expand that to a list of files. Separate multiple entries with a space. Only files are allowed here, no directories.</p>
+
+</dd>
+</dl>
+
+<pre><code><code> * Note that you could pass a system command for any value by enclosing it in backticks (`...`) which is standard Perl
+ way to capture output from the system.  Eg. &lt;ftp pass&gt; = `cat ~/mypass.txt`  to read the contents of mypass.txt in 
+ current user&#39;s home directory, and then use it as the password parameter value. 
+ 
+ As another example, if the file &quot;myftp&quot; contains three words: 
+ 
+ my.server.org myuser mypass
+
+ Then:        sba_ftp `cat ~/myftp` /dest/folder ./file/to/upload.ext  
+ Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
+ </code></code></pre>
+
+<h2 id="E-Mail-Notifications">E-Mail Notifications</h2>
+
+<p>To receive a summary or the completed job, use the notify-* options described above to specify a destination e-mail address (or several, separated by comma) and a server to use for sending mail. The summary includes what is normally displayed on the console when you run <code><code>sba.pl</code></code>. The subject line includes an overall status and build totals. By default notices are only sent when something was actually done (build/distributed), although you can override this using <code><code>--notify-always</code></code> or <code><code>notify-always = 1</code></code> in the config file.</p>
+
+<p>The simplest scenario is if your server is local or otherwise can authenticate you w/out logging in (eg. IP address). You can also specify a user/pass if necessary. The <code><code>notify-usetls</code></code> option provides some extra security, but might not work due to certificate issues with the underlying Perl SSL module.</p>
+
+<h1 id="REQUIRES">REQUIRES</h1>
+
+<p>Perl modules:</p>
+
+<dl>
+
+<dt id="Config::INI::Reader::Ordered"><a href="http://search.cpan.org/~hdp/Config-INI-Reader-Ordered-0.011/lib/Config/INI/Reader/Ordered.pm">Config::INI::Reader::Ordered</a></dt>
+<dd>
+
+</dd>
+<dt id="Mail::Sender"><a href="http://search.cpan.org/~jenda/Mail-Sender/Sender.pm">Mail::Sender</a></dt>
+<dd>
+
+</dd>
+<dt id="Net::FTP"><a>Net::FTP</a></dt>
+<dd>
+
+</dd>
+<dt id="File::Basename"><a>File::Basename</a></dt>
+<dd>
+
+</dd>
+<dt id="Getopt::Long"><a>Getopt::Long</a></dt>
+<dd>
+
+</dd>
+<dt id="Pod::Usage"><a>Pod::Usage</a></dt>
+<dd>
+
+</dd>
+<dt id="Data::Dump-for-debug-only"><a>Data::Dump</a> (for debug only)</dt>
+<dd>
+
+</dd>
+</dl>
+
+<p>Make sure your <b>environment</b> is prepared for the build jobs (eg. PATH is set properly, <code><code>make</code></code> is available, etc). You may want a wrapper shell/batch script which first sets up the environment before calling this program.</p>
+
+<p>Windows users might need cygwin/msys or some other version of GNU tools in the current PATH. If you are building software, you probably have it already.</p>
+
+<h1 id="AUTHOR">AUTHOR</h1>
+
+<pre><code><code> Maxim Paperno
+ </code></code></pre>
+
+<h1 id="HISTORY">HISTORY</h1>
+
+<pre><code><code> v. 0.1 - 03-Mar-14
+ v. 0.2 - 06-Mar-14
+ </code></code></pre>
+
+<h1 id="Copyright-License-and-Disclaimer">Copyright, License, and Disclaimer</h1>
+
+<p>Copyright (c) 2014 by Maxim Paperno. All rights reserved.</p>
+
+<pre><code><code>    <span class="variable">This</span> <span class="variable">program</span> <span class="variable">is</span> <span class="variable">free</span> <span class="variable">software</span><span class="operator">:</span> <span class="variable">you</span> <span class="variable">can</span> <span class="variable">redistribute</span> <span class="variable">it</span> <span class="keyword">and</span><span class="regex">/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see &lt;http:/</span><span class="operator">/</span><span class="variable">www</span><span class="operator">.</span><span class="variable">gnu</span><span class="operator">.</span><span class="variable">org</span><span class="operator">/</span><span class="variable">licenses</span><span class="operator">/&gt;.</span>
+     
+</code></code></pre>
+
+<h1 id="POD-ERRORS">POD ERRORS</h1>
+
+<p>Hey! <b>The above document had some coding errors, which are explained below:</b></p>
+
+<dl>
+
+<dt id="Around-line-756">Around line 756:</dt>
+<dd>
+
+<p>Unterminated C&lt;...&gt; sequence</p>
+
+</dd>
+</dl>
+
+
+</body>
+
+</html>
+
+
