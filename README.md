@@ -1,10 +1,12 @@
 Simple Build Agent (in Perl)
 ============================
 
-Compares a local and remote code repo (SVN for now), and if changes are detected then it can launch build steps using one or more saved configurations (eg. to build different versions of the same code). Each configuration can have up to 5 steps: clean, build, deploy (package), distribute, and finish (final step). All steps are optional. It can also be forced to launch builds, regardless of repo status.
+Compares a local and remote code repo (SVN for now), and if changes are detected then it can launch build steps using one or more saved configurations 
+(eg. to build different versions of the same code). Each configuration can have up to 5 steps: clean, build, deploy (package), distribute, and finish (final step). 
+All steps are optional. It can also be forced to launch builds, regardless of repo status.  Comes with a basic FTP client to distribute build artifacts
+and an e-mail notification to keep track of job status.
 
-Full documentation here: http://mpaperno.github.io/SBA/
-
+[See full documentation here](http://mpaperno.github.io/SBA/), or in included index.html file, or embedded POD (`sba.pl --man`).
 
 Copyright (c) 2014 by Maxim Paperno. All rights reserved.
 
