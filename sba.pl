@@ -753,7 +753,7 @@ Path for all output logs. C<SBA> generates its own log (same as what you'd see o
 is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. 
 You might want to set it to be inside the build directory, as in the provided examples. 
 
-To disable all logging, set this value to blank (eg. C<--log-folder< or C<log-folder => in the config file. 
+To disable all logging, set this value to blank (eg. C<--log-folder> or C<log-folder => in the config file. 
 
 =item B<--force-build or --force or -f> I<(default: 0 (false))>
 
