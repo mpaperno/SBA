@@ -313,10 +313,10 @@ if ($localRev == $remoteRev) {
 		foreach $typ (qw(clean build deploy distrib finish)) {
 			$t_count++;
 			$typCmd = $b->{$typ};
-			$b->{status} = $t_count + 1; # keep track of current step
 			# skip over blank commands, or clean step if incremental build
 			next if ($typCmd eq "" || ($typ eq "clean" && $b->{incremental}));
 			
+			$b->{status} = $t_count + 1; # keep track of current step
 			# set log file, if not disabled (default is nul)
 			$logFile = $logRoot ."-". $typ . $logFileSfx if (!$disableLog);
 
