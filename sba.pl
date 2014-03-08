@@ -3,6 +3,7 @@
 ######################
 # SBA - Simple Build Agent (in Perl)
 # 
+# v1.10 - 08-Mar-14
 # v1.00 - 07-Mar-14
 # v0.01 - 03-Mar-14
 # 
@@ -32,10 +33,11 @@ use File::Basename qw(dirname);
 use POSIX qw(strftime);
 use Getopt::Long qw(GetOptions GetOptionsFromString :config pass_through);
 use Data::Dump qw(pp);
-use Config::INI::Reader::Ordered;
+use Config::IniFiles;
 use Pod::Usage;
 use Net::FTP;
 use Mail::Sender;
+use Tie::File;
 
 # "globals"
 my $DEBUG = 0;
@@ -43,7 +45,7 @@ my $OUTPUT = "";				# logged output collector
 my $STATUS = 0;					# exit status
 my $QUIET = 0;					# suppress all output and redirect STDOUT to &log()
 my $LOG_H;						# logger handle
-(my $PROG = $0) =~ s#.*/##;		# self name
+(my $PROG = $0) =~ s/.*[\/\\]//; # self name
 
 # handle all output and some signals internally
 $SIG{__WARN__} = \&_warn;
@@ -76,16 +78,24 @@ my %notify  = (
 
 # per-build config defaults (these can be changed via config file [build-default] section)
 my %buildConfigDefaults = (
-	name		=> "",				# build name
-	dir			=> "",				# build directory (optional)
-	clean		=> "",				# clean command
-	build		=> "",				# build command
-	deploy		=> "",				# deploy (package) command
-	distrib		=> "",				# distribute command
-	finish		=> "",				# finish (last) command
-	incremental	=> 0,				# incremental build (don't clean first)
-	force		=> 0,				# force build even if no update
-	status		=> 1,				# enabled/disabled
+	name			=> "",			# build name
+	dir				=> "",			# build directory (optional)
+	clean			=> "",			# clean command
+	build			=> "",			# build command
+	deploy			=> "",			# deploy (package) command
+	distrib			=> "",			# distribute command
+	finish			=> "",			# finish (last) command
+	incremental		=> 0,			# incremental build (don't clean first)
+	force			=> 0,			# force build even if no update
+	enable			=> 1,			# enabled/disabled
+	last_build_ver	=> "",			# vcs version last built successfully (string comparison)
+	last_build_dt	=> "",			# timestamp of last succeful build
+	last_run_stat	=> 0,			# final status of last run
+	last_run_dt		=> 0,			# timestamp of last run
+	
+# rest are for internal use only, these are not read/written from/to config file
+	status			=> 0,			
+	cfg_section		=> "",			
 );
 
 # other script-wide defaults
@@ -97,6 +107,7 @@ my $svnUpdtCmd = "svn update -r HEAD --force";
 
 # declarations/misc
 my @buildConfigs;
+my %cfg;			# tied to config file
 my $workFolder;
 my $tmp;
 my $localRev = 0;
@@ -170,26 +181,30 @@ $forceDbg = $DEBUG;
 
 # process config file
 
-my $cfg_aref = Config::INI::Reader::Ordered->read_file($configFile)
-		or &log(0, "Could not read config file $configFile : $!");
+tie %cfg, 'Config::IniFiles', ( 
+				-file => $configFile, 
+				-allowcontinue => 1, 
+#				-allowedcommentchars => '#', 
+#				-handle_trailing_comment => 1 
+)
+	or &_die("Could not read config file $configFile : $!");
 
-my ($s, %h, $k, $v);
-for my $c (@$cfg_aref) {
-	next if (!ref $c eq 'ARRAY' || !@$c || @$c[0] eq "" || !@$c[1] || !ref @$c[1] eq 'HASH' || !%{@$c[1]});
-	
-	$s = @$c[0];	# config section name
-	%h = %{@$c[1]};	# section values hash
-
-	if ($s eq "settings") {
-		$tmp .= "--".$k." ".$v." " while (($k, $v) = each %h);
-		Getopt::Long::GetOptionsFromString($tmp, \%options, @optspec);
-	} elsif ($s eq "build-default") {
-		@buildConfigDefaults{keys %h} = values %h;
-	} else {
-		$tmp = {%buildConfigDefaults};
-		$tmp->{name} = $s;
-		@$tmp{keys %h} = values %h;
-		push @buildConfigs, $tmp;
+{
+	my ($s, %h, $k, $v, $t);
+	foreach $s (tied(%cfg)->Sections()) {
+		%h = %{$cfg{$s}};
+		if ($s eq "settings") {
+			$t = "";
+			$t .= "--".$k." ".$v." " while (($k, $v) = each %h);
+			Getopt::Long::GetOptionsFromString($t, \%options, @optspec);
+		} elsif ($s eq "build-default") {
+			@buildConfigDefaults{keys %h} = values %h;
+		} else {
+			$t = {%buildConfigDefaults};
+			$t->{cfg_section} = $t->{name} = $s;
+			@$t{keys %h} = values %h;
+			push @buildConfigs, $t;
+		}
 	}
 }
 
@@ -203,7 +218,7 @@ $DEBUG = $forceDbg || $DEBUG;
 *STDOUT = \&_out if $QUIET;
 
 # debug output of full config
-&log(5, pp("buildConfigDefaults hash:", \%buildConfigDefaults, 
+&_dbg(pp("buildConfigDefaults hash:", \%buildConfigDefaults, 
 			"buildConfigs array:", \@buildConfigs, 
 			"options hash:", \%options)
 );
@@ -216,16 +231,16 @@ $DEBUG = $forceDbg || $DEBUG;
 $workFolder = dirname(abs_path($configFile));
 
 chdir $workFolder 
-	or &log(0, "Could not change to directory $workFolder");
+	or &_die("Could not change to directory $workFolder");
 
 # open the main log file, if any
 if ($logFolder ) {
 	$logFolder = $workFolder ."/". $logFolder;
 	validateDir($logFolder)
-		or &log(0, "Failed to create log directory: $!");
+		or &_die("Failed to create log directory: $!");
 	my $fullLogfilePath = $logFolder ."/". $logFileName . $logFileSfx;
 	open ($LOG_H, '>', $fullLogfilePath)
-		or &log(0, "Could not open log file $fullLogfilePath : $!");
+		or &_die("Could not open log file $fullLogfilePath : $!");
 
 } else {
 	$disableLog = 1;
@@ -258,10 +273,12 @@ if ($localRev == $remoteRev) {
 	} elsif (&log("Re-trying: $svnUpdtCmd") && system($tmp) == 0) { # 2nd try
 		$status{vcs_udate} = 1;
 	} else {
-		&log(0, "SVN update failed with: $?");
+		&_die("SVN update failed with: $?");
 	}
 	if ($status{vcs_udate} == 1) {
-		&log("Repo update complete. New local version is ". svnVersion("local")); }
+		$localRev = &svnVersion("local");
+		&log("Repo update complete. New local revision: $localRev"); 
+	}
 }
 
 # start building requested config(s)
@@ -277,6 +294,7 @@ if ($localRev == $remoteRev) {
 		$typ,
 		$typCmd
 	),
+	my $config_rewrite = 0,
 	my $b_count = 0,
 	my $t_count = 0;
 	
@@ -287,29 +305,30 @@ if ($localRev == $remoteRev) {
 		$buildName = $b->{name};
 		$logRoot = $logFolder ."/". $buildName;
 		$logFile = $logNull;
+		$b->{status} = 0;
 		
 		if ($b->{name} eq "") {
 			&log("--$b_count-- No name found for this config, skipping.");
-			next;
-		} elsif ($b->{status} != 1) {
+			goto FINISH_CONFIG;
+		} elsif ($b->{enable} == 0) {
 			&log("--$b_count-- $buildName is disabled, skipping.");
-			next;
-		} elsif (!$b->{force} && !$forceBuild && !$status{vcs_udate}) {
-			&log("--$b_count-- No updates for $buildName, skipping.");
-			next;
-		} elsif ($b->{clean} eq "" && $b->{build} eq "" && $b->{deploy} eq "" && $b->{distrib} eq "") {
-			&log(2, "--$b_count-- No commands found for $buildName, skipping.");
-			next;
+			goto FINISH_CONFIG;
+		} elsif ($b->{clean} eq "" && $b->{build} eq "" && $b->{deploy} eq "" && $b->{distrib} eq "" && $b->{finish} eq "") {
+			&_warn(2, "--$b_count-- No commands found for $buildName, skipping.");
+			goto FINISH_CONFIG;
+		} elsif (!$b->{force} && !$forceBuild && $b->{last_build_ver} eq $localRev) { #!$status{vcs_udate}
+			&log("--$b_count-- No updates for $buildName, skipping. (last-built-ver: $b->{last_build_ver}; local-ver:$localRev)");
+			goto FINISH_CONFIG;
 		}
 		# is build folder specified in config? make sure it exists
 		if ($b->{dir} ne "") {
 			if (!validateDir($b->{dir})) {
-				&log(1, "--$b_count-- Failed to create build directory, skipping this build.");
-				next;
+				&_err("--$b_count-- Failed to create build directory, skipping this build.");
+				goto FINISH_CONFIG;
 			}
 		}
 		
-		&log("==$b_count== Starting to process config: $buildName ");
+		&log("==$b_count== Starting to process $buildName with version $localRev");
 		
 		foreach $typ (qw(clean build deploy distrib finish)) {
 			$t_count++;
@@ -317,7 +336,7 @@ if ($localRev == $remoteRev) {
 			# skip over blank commands, or clean step if incremental build
 			next if ($typCmd eq "" || ($typ eq "clean" && $b->{incremental}));
 			
-			$b->{status} = $t_count + 1; # keep track of current step
+			$b->{status} = $t_count; # keep track of current step
 			# set log file, if not disabled (default is nul)
 			$logFile = $logRoot ."-". $typ . $logFileSfx if (!$disableLog);
 
@@ -326,19 +345,19 @@ if ($localRev == $remoteRev) {
 			# eval backtick`ed expressions in the command line (save an un-eval copy for logging to protect pswds) 
 			($cmd = $tmp) =~ s/(`.+`)/eval($1)/eg;
 			
-			&log("~~$b_count~~ $typ started: " . $tmp);
-			&log(5, "expanded cmd: <$cmd>");
+			&log("~~$b_count~~ $typ step command: " . $tmp);
+			&_dbg("expanded cmd: <$cmd>");
 			
 			# check if special case for built-in ftp client
 			if ($cmd =~ s/^sba_ftp //i) { 
 				($cmdRslt, $cmdOutput) = ftpSend($cmd =~ /(`.+`|\S+)/g);
-				&log(5, "ftpSend returned: \n". $cmdOutput);
+				&_dbg("ftpSend returned: \n". $cmdOutput);
 				if ( open (my $tmp_h, '>', $logFile) ) {
 					print $tmp_h $cmdOutput;
 					close ($tmp_h);
 					undef($tmp_h);
 				} else { 
-					&log(2, "Could not write to $typ log file: $!");
+					&_warn("Could not write to $typ log file: $!");
 				}
 			}
 			# otherwise just execute the command 
@@ -349,21 +368,43 @@ if ($localRev == $remoteRev) {
 			# check result
 			if ($cmdRslt == 0) {
 				$b->{status} = 10 * $t_count; # success
-				&log("++$b_count++ $typ completed");
+				&log("++$b_count++ $typ step completed");
 			} else {
-				$b->{status} = 100; # fail
-				&log(1, "!!$b_count!! $typ FAILED with error: $cmdRslt. Check $logFile for details.");
+				$b->{status} = 10 * $t_count + 100; # fail
+				&_err("!!$b_count!! $typ step FAILED with error: $cmdRslt." . (!$disableLog ? " Check $logFile for details." : ""));
 				last;
 			}
 			
 		} # loop each command type
 	
-		&log("==$b_count== Done with config: $buildName");
+		&log("==$b_count== Finished with $buildName");
+		
+		FINISH_CONFIG : {
+			# update config file with status info
+			$cfg{$b->{cfg_section}}{last_run_stat} = $b->{status};
+			$cfg{$b->{cfg_section}}{last_run_dt} = strftime("%m/%d/%y %H:%M:%S", localtime);
+			if ($b->{status} >= 10 && $b->{status} < 100) {
+				$cfg{$b->{cfg_section}}{last_build_ver} = $localRev;
+				$cfg{$b->{cfg_section}}{last_build_dt} = $cfg{$b->{cfg_section}}{last_run_dt};
+			}
+			if (tied( %cfg )->RewriteConfig()) {
+				$config_rewrite = 1;
+			} else { &_err("Could not update config file: $!"); }
+		}
 	} # end of @buildConfigs loop
+
+	# prettyify rewritten config file
+	if ($config_rewrite) {
+		if (tie my @newcfg, 'Tie::File', $configFile) {
+			s/([^=\s]+)=/sprintf("%-15s = ", $1)/e foreach @newcfg;
+			untie @newcfg;
+		}
+		else { &_warn("Could not prettify config file: $!"); }
+	}
 
 } # end configs proc block
 
-&log(5, pp("Result buildConfigs array:", \@buildConfigs));
+&_dbg(pp("Result buildConfigs array:", \@buildConfigs));
 
 #} # END MAIN:
 
@@ -376,11 +417,11 @@ END: {
 			# examine build config for status
 			for $b (@buildConfigs) {
 				$status{builds_ttl}++;
-				if ($b->{status} == 100) {		# errors
+				if ($b->{status} >= 100) {		# errors
 					$status{builds_err}++;
 				} elsif ($b->{status} >= 10) {	# success statuses
 					$status{builds_ok}++;
-				} elsif ($b->{status} > 1) {	# was in middle of a step
+				} elsif ($b->{status} > 0) {	# was in middle of a step
 					$status{builds_err}++;
 				}
 			}
@@ -418,7 +459,7 @@ END: {
 			&log(3, "Skipping notifcation (no recipient or server).");
 		}
 	};
-	&log(1, "Error trying to notify: $@") if $@;
+	&_err("Error trying to notify: $@") if $@;
 	
 	&log("Done, exiting.");
 	
@@ -440,22 +481,22 @@ END: {
 # All output is sent to $LOG_H if it is a valid output handle.
 sub log {
 	#pp(\@_);
+	my $lvl = ($_[0] =~ /^\d$/) ? shift : 3;
+	my $msg = shift;
+	return 0 if (!$msg || ($lvl == 5 && !$DEBUG));
+	
+	my $haveLog = ($LOG_H && tell($LOG_H) != -1);
+	my ($clr_p, $clr_f, $clr_l) = caller;
+	my $dt = strftime "%m/%d/%y %H:%M:%S", localtime;
+	my $typName = "INF";
+	for ($lvl) {
+		when (0) { $typName = "CRT"; }
+		when (1) { $typName = "ERR"; }
+		when (2) { $typName = "WRN"; }
+		when (5) { $typName = "DBG"; }
+	}
+
 	eval {
-		my $lvl = ($_[0] =~ /^\d$/) ? shift : 3;
-		my $msg = shift;
-		return 0 if (!$msg || ($lvl == 5 && !$DEBUG));
-		
-		my $haveLog = ($LOG_H && tell($LOG_H) != -1);
-		my ($clr_p, $clr_f, $clr_l) = caller;
-		my $dt = strftime "%m/%d/%y %H:%M:%S", localtime;
-		my $typName = "INF";
-		for ($lvl) {
-			when (0) { $typName = "CRT"; }
-			when (1) { $typName = "ERR"; }
-			when (2) { $typName = "WRN"; }
-			when (5) { $typName = "DBG"; }
-		}
-		
 		my $out = $clr_p;
 		$out .= "@". $clr_l if $DEBUG;
 		$out .= " ". $typName .": ". $msg ."\n";
@@ -487,6 +528,7 @@ sub _out { &log(3, @_); }	# STDOUT handler
 sub _warn { &log(2, @_); }	# SIG_WARN handler
 sub _err { &log(1, @_); }	# STDERR handler
 sub _die { &log(0, @_); }	# SIG_DIE handler
+sub _dbg { &log(5, @_); }	# debug shortcut
 
 
 # get revision number from svn repo
@@ -502,7 +544,7 @@ sub svnVersion {
 	} else {
 		$rev = `svn info -r HEAD`;
 	}
-	if ($?) { &log(0, "Could not get svn info."); }
+	if ($?) { &_die("Could not get svn info."); }
 	($ret) = ($rev =~ m/^Revision..(\d+)$/m);
 	
 	return $ret;
@@ -668,16 +710,16 @@ sub notify {
 	}
 	
 	if ($senderOpts->{smtp} eq "" || $senderOpts->{to} eq "") {
-		&log(2, "notify ERROR: No server specified or no one to send to.");
+		&_warn("notify ERROR: No server specified or no one to send to.");
 		return;
 	}
 	
 	eval {
 		$sender = new Mail::Sender();
 		$sender->MailMsg($senderOpts);
-#		&log(5, pp(\$sender));
-		&log(3, "Notifcation sent to <". $opts->{recip} ."> with response: ". $sender->{message_response});
-	} or &log(1, $@);
+#		&_dbg(pp(\$sender));
+		&log("Notifcation sent to <". $opts->{recip} ."> with response: ". $sender->{message_response});
+	} or &_err($@);
 	
 	return;
 }
@@ -696,26 +738,26 @@ sub notify {
 
 =head1 DESCRIPTION
  
-Compares a local and remote code repo (SVN for now), and if changes are detected  then it can launch build steps
-using one or more saved configurations (eg. to build different versions of the same code). Each configuration can have 
-up to 5 steps: clean, build, deploy (package), distribute, and finish (final step).  All steps are optional.  It can also be forced to
-launch builds, regardless of repo status.
+F<SBA> is designed as a very basic "build server" (or L<CI|http://en.wikipedia.org/wiki/Continuous_integration>, if you prefer).
+It can compare a local and remote code repo (SVN for now), and if changes are detected then it can pull the new version and launch build step(s)
+(eg. to build different versions of the same code, distribute builds to multiple places, or whatever).  It's basically a replacement for using
+batch/shell scripts to manage code updates/builds/distribution, with some built-in features geared specifically for such jobs.
 
-Each step can run any system command, for example C<make>, along with all required arguments.  If you can run it from
-the command line, then it should work when run via this script.
+All configuration is done via simple INI files. Each configuration can run multiple builds, and each build can run up to 5 steps, for example: 
+I<clean>, I<build>, I<deploy>, I<distribute>, and I<finish>.  It can also be forced to launch builds, regardless of repo status.
 
-For distribution of build results ("artifacts"), as an option, a built-in FTP client can be used to upload files to a server. 
+Each step can run any system command, for example C<make>, along with any required arguments.  If you can run it from
+the command line, then it should work when run via F<SBA>. All steps are optional.
 
-Finally, a notification e-mail can be sent to multiple recipients, including a full log of the results.
+For distribution of build results ("artifacts"), a built-in L<FTP client|/FTP Distribution> can be used to upload files to a server. 
+
+Finally, a notification e-mail can be sent to multiple recipients, including a full log of the job results.
 
 Limitations/TODO: 
 
 =over 4
 
 =item - Only checks the currently checked-out branch of a repo for updates.  Does not detect new branches/tags/etc.
-
-=item - Can not automatically detect if a version has already been built or not -- will skip building if local and
-remote repo versions match, unless manually forced with global C<force-build> option or per-build C<force> directive.
 
 =item - Add Git support.
 
@@ -750,7 +792,7 @@ which in turn determines the base path for all executed commands (all paths are 
 
 =item B<--log-folder or -l> [<path>] I<(default: ./log)>
 
-Path for all output logs. C<SBA> generates its own log (same as what you'd see on the console), plus the output of every command
+Path for all output logs. F<SBA> generates its own log (same as what you'd see on the console), plus the output of every command
 is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. 
 You might want to set it to be inside the build directory, as in the provided examples. 
 
@@ -835,23 +877,23 @@ which is much easier to manage than the command line parameters.
  
   -----------------------------------------------------------
   [settings]
-  ; these are SBA program settings, same as command-line options.
+  # these are SBA program settings, same as command-line options.
   log-folder    = ../build-sba/log
   notify-to     = me@example.com
   notify-server = localhost
   notify-subj   = "My builds status:"
   
   [build-default]
-  ; default settings for all builds
+  # default settings for all builds
   dir           = ../build-sba
   clean         = make clean clean-bin $common
   deploy        = 
   distrib       = sba_ftp ftp.myhost.org user pass /nightly $dir/$name/*.hex
   
-  ; convenience macro to be used in other commands
+  # convenience macro to be used in other commands
   common        = BUILD_TYPE=$name BUILD_PATH=$dir
   
-  ; all other blocks define individual build configurations
+  # all other blocks define individual build configurations
   
   [board-6.0]
   build         = make all -j1 $common BOARD_VER=6 BOARD_REV=0
@@ -861,7 +903,7 @@ which is much easier to manage than the command line parameters.
   build         = make all -j1 $common BOARD_VER=6 BOARD_REV=0 DIMU_VER=1.1
   incremental   = 1
   force         = 1
-  status        = 1
+  enable        = 1
   -----------------------------------------------------------
 
 
@@ -869,28 +911,44 @@ which is much easier to manage than the command line parameters.
 
 =over 4
 
-=item - Config file follows standard L<.ini file format|http://search.cpan.org/dist/Config-INI/lib/Config/INI.pm#GRAMMAR> specifications.
+=item - Config file (mostly) follows standard L<.ini file format|http://en.wikipedia.org/wiki/INI_file> specifications, with the following caveats:
 
-=item - The optional B<[settings]> block describes all script-level options.  Any setting listed in L</OPTIONS>, above, can be used here 
-(simply ommit the leading -- before the option name).
+=over 8
+
+=item - Parameter and variable names are CASE SENSITIVE!
+
+=item - Comments can start with a semicolon or hash mark (; or #).  Comments must start on their own line.
+
+=item - Long lines can be split using a backslash (\) as the last character of the line to be continued, immediately followed by a newline. eg:
+
+  [Section]
+  Parameter=this parameter \
+    spreads across \
+    a few lines
+
+=back
+
+=item - The optional B<[settings]> block describes F<SBA> runtime options.  Any parameter listed in L</OPTIONS> can be used here 
+(simply ommit the leading C<--> before the option name).
 
 =item - The optional B<[build-default]> block describes settings which are shared by all build configs.
 
 =item - Each subsequent B<[named-block]> describes a build configuration.  Block names must be unique, and are used as the build name by default.
+They are processed in order of their appearance in the .ini file.
 
 =item - Strings may contain embedded references (macros) to other named params, preceded with a $ sign. 
 All macros are evaluated when each config is run (vs. when the config file is initially read).  Check the example above to see how the C<$dir> and
-C<$name> variables are used (which correspond to the build directory and build name, respectively).
+C<$name> variables are used (which correspond to the current build directory and build name, respectively).
 
 =item - Any arbitrary variable can be declared and then used as a macro (like C<$common> is used in the example above).  
 Typical variable name syntax rules apply (no spaces, etc).  They can appear in any order in the confg 
-file (you do not have to declare a variable before using it, as long as it appears somewhere in the config).
-
-=item - Parameter and variable names are CASE SENSITIVE!
-
-=item - Comments start with a semi-colon (;) and are ignored.
+file (you do not have to declare a variable before using it, as long as it appears somewhere in the config file).
 
 =back
+
+* Note that the config file is also used by F<SBA> to store some data about each build (eg. last built version and date).  Therefore it should be
+writeable by the system.  If it isn't, there will be no way to track the last built version, which may trigger a rebuild on each run.
+** It is a good idea to keep backups of your INI config files in case anything goes completely awry and corrupts the original config **
 
 =head3 Per-build Config parameters:
 
@@ -930,12 +988,41 @@ Set to 1 to skip clean step, 0 to always clean first.
 
 Set to 1 to always run this config, even if no new version was detected.  This is like the global --force option, but per-configuration.
 
-=item B<status>	 I<(default: 1 (enable))>
+=item B<enable>	 I<(default: 1)>
 
 Set to 0 to disable this build, 1 to enable.
- 
+
 =back
 
+Some parmeters are written back to the config file after each build by F<SBA> itself, although you could set these manually if you wanted to.
+Currently only the C<last_built_ver> has any real significance, the rest are just a log for now.
+
+=over 4
+
+=item B<last_built_ver>
+
+Keeps track of the last version successfully built.  This is whatever string is used to keep track of versions from the VCS system. 
+Eg. SVN would typically use the Revision number (eg. from C<svn info>), or for Git it could be the last commit's SHA1 reference 
+(eg. from C<git ls-remote . HEAD>).  You could provide a starting value here if you want to avoid rebuilding on the first 
+run of your config file.
+
+=item B<last_built_dt>
+
+Date & time of last successful build. 
+
+=item B<last_run_dt>
+
+Date & time of last run of this config. 
+
+=item B<last_run_stat>
+
+Status code from last run/build attempt. Explained:
+
+  0 = unbuilt; 1-5 = started step; 10-50 = finished step; 110-150 = error during step;
+  where step: 1=clean; 2=build; 3=deploy; 4=distrib; 5=finish. 
+  Eg. 40=finished distrib, or 110=error during clean
+
+=back
  
 =head2 FTP Distribution
 
@@ -988,8 +1075,8 @@ Only files are allowed here, no directories.
 
 =head2 E-Mail Notifications
 
-To receive a summary or the completed job, use the notify-* options described above to specify a destination e-mail address (or several, separated by comma) 
-and a server to use for sending mail.  The summary includes what is normally displayed on the console when you run C<sba.pl>.  The subject line includes an
+To receive a summary or the completed job, use the notify-* options L<described above|/Notification Options> to specify a destination e-mail address (or several, separated by comma) 
+and a B<server> to use for sending mail.  The summary includes what is normally displayed on the console when you run C<sba.pl>.  The subject line includes an
 overall status and build totals.  By default notices are only sent when something was actually done (build/distributed), although you can override this using
 C<--notify-always> or C<notify-always = 1> in the config file.
 
@@ -1002,7 +1089,7 @@ Perl modules:
 
 =over 4
 
-=item L<Config::INI::Reader::Ordered|http://search.cpan.org/~hdp/Config-INI-Reader-Ordered-0.011/lib/Config/INI/Reader/Ordered.pm>
+=item L<Config::IniFiles|http://search.cpan.org/search?query=config-inifile>
 
 =item L<Mail::Sender|http://search.cpan.org/~jenda/Mail-Sender/Sender.pm>
 
@@ -1021,19 +1108,15 @@ Perl modules:
 Make sure your B<environment> is prepared for the build jobs (eg. PATH is set properly, C<make> is available, etc).  You may want a wrapper
 shell/batch script which first sets up the environment before calling this program.
 
+E-Mail B<notifications> require a mail server capable of relaying the mail (see L</E-Mail Notifications>).
+
 Windows users might need cygwin/msys or some other version of GNU tools in the current PATH.  If you are building software, 
 you probably have it already.  
 
 =head1 AUTHOR
 
  
- Maxim Paperno
- 
-
-=head1 HISTORY
- 
- v. 0.1 - 03-Mar-14
- v. 0.2 - 06-Mar-14
+ Maxim Paperno - MPaperno@WorldDesign.com
  
 
 =head1 Copyright, License, and Disclaimer
