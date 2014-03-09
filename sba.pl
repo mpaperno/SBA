@@ -71,7 +71,7 @@ my %notify  = (
 	user	=> "",					# username for mail server auth, if required
 	pass	=> "",					# password for mail server auth, if required
 	usetls	=> 0,					# enable to use TLS/SSL transport
-	sender	=> "<>",				# sender address (default is null)
+	sender	=> "",					# sender address (default uses first address in "recip")
 	subject	=> "[SBA] Build", 		# e-mail subject prefix
 	msg		=> ""					# used internally, not settable
 );
@@ -122,12 +122,8 @@ my %status = (
 	builds_err	=> 0
 );
 
-
-#
-# CONFIG
-#
-
-# main script settings storage (some values might also be stored in global vars)
+# options array for Getopt::Long::GetOptions() to store data in
+# refers back to local vars, set above
 my %options = (
 	"config"		=> \$configFile,
 	"log-folder"	=> \$logFolder,
@@ -146,6 +142,8 @@ my %options = (
 );
 
 # option arguments syntax passed to Getopt::Long::GetOptions()
+# this also determines the syntax accepted in config file [settigns]
+# should correspond to %options hash
 my @optspec = (
 	'config|c=s',
 	'log-folder|l:s',
@@ -162,6 +160,11 @@ my @optspec = (
 	'debug|d:1',
 	'quiet|q:1'
 );
+
+
+#
+# CONFIG
+#
 
 # first only check a few cmd-line arguments, the rest are read from config file first
 # we later run GetOptions again so cmd-line can override config file.
@@ -191,15 +194,16 @@ tie %cfg, 'Config::IniFiles', (
 
 {
 	my ($s, %h, $k, $v, $t);
+	# loop over each config section because we want them in order of appearance.
 	foreach $s (tied(%cfg)->Sections()) {
 		%h = %{$cfg{$s}};
-		if ($s eq "settings") {
+		if ($s eq "settings") {  			# pass these as options to Getopt
 			$t = "";
 			$t .= "--".$k." ".$v." " while (($k, $v) = each %h);
 			Getopt::Long::GetOptionsFromString($t, \%options, @optspec);
-		} elsif ($s eq "build-default") {
+		} elsif ($s eq "build-default") {	# merge with default build config
 			@buildConfigDefaults{keys %h} = values %h;
-		} else {
+		} else {							# all other sections get merged with defaults and saved as build configs
 			$t = {%buildConfigDefaults};
 			$t->{cfg_section} = $t->{name} = $s;
 			@$t{keys %h} = values %h;
@@ -216,6 +220,11 @@ pod2usage(1) unless
 $DEBUG = $forceDbg || $DEBUG;
 # redirect stdout if quiet
 *STDOUT = \&_out if $QUIET;
+
+# default notify sender if blank
+if ($notify{sender} eq "") {
+	($notify{sender} = $notify{recip}) =~ s/([^,]+),?.*/$1/;
+}
 
 # debug output of full config
 &_dbg(pp("buildConfigDefaults hash:", \%buildConfigDefaults, 
@@ -724,6 +733,8 @@ sub notify {
 	return;
 }
 
+__END__
+
 #
 # DOCUMENTATION
 #
@@ -790,7 +801,7 @@ See L</INSTRUCTIONS> below for details about config file format.
 Configuration file to use. The path of this file also determines the script's working directory,
 which in turn determines the base path for all executed commands (all paths are relative to the working folder).
 
-=item B<--log-folder or -l> [<path>] I<(default: ./log)>
+=item B<--log-folder> or B<-l> [<path>] I<(default: ./log)>
 
 Path for all output logs. F<SBA> generates its own log (same as what you'd see on the console), plus the output of every command
 is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. 
@@ -798,19 +809,19 @@ You might want to set it to be inside the build directory, as in the provided ex
 
 To disable all logging, set this value to blank (eg. C<--log-folder> or C<log-folder => in the config file. 
 
-=item B<--force-build or --force or -f> I<(default: 0 (false))>
+=item B<--force-build> or B<--force> or B<-f> I<(default: 0 (false))>
 
 Always (re-)build even if no new repo version detected.  This can also be specified per build config (see config file details, below).
 
-=item B<--quiet or -q>
+=item B<--quiet> or B<-q>
 
 Do not print anything to the console (STDOUT/STDERR).  Output is still printed to log file (if enabled), and sent in a notification (if enabled).
 
-=item B<--debug or -d>
+=item B<--debug> or B<-d>
 
 Output extra runtime details.
 
-=item B<--help or -h or -?>
+=item B<--help> or B<-h> or B<-?>
 
 Print usage summary and options.
 
@@ -843,9 +854,9 @@ Subject prefix.  Status details get appended to this.
 Whether to send notifcation even if no builds were performed (eg. no updates were detected, and nothing was forced). 
 Default is 0 (only notify when something was actually done).
 
-=item B<--notify-from> <sender e-mail> I<(default:> <> I<(null))>
+=item B<--notify-from> <sender e-mail> I<(default: first address in C<notify-to>)>
 
-The sender's e-mail address (also where any bounces would go to).
+The sender's e-mail address (also where any bounces would go to).  Defaults to the first address found in C<notify-to> option.
 
 =item B<--notify-user> <username>
 
