@@ -1,6 +1,4 @@
-# NAME
-
-    Simple Build Agent (in Perl)
+# Simple Build Agent (in Perl)
     
 
 # DESCRIPTION
@@ -48,12 +46,12 @@ See full ["INSTRUCTIONS"](#instructions) below (run `sba --man` if needed).
 Note: all options can appear in the configuration file's \[settings\] block using the same names (long versions) as shown here, minus the "--" part.
 See ["INSTRUCTIONS"](#instructions) below for details about config file format.
 
-- __-c__ <file>  _(default: ./sba.ini)_
+- __-c__ \<file\>  _(default: ./sba.ini)_
 
     Configuration file to use. The path of this file also determines the script's working directory,
     which in turn determines the base path for all executed commands (all paths are relative to the working folder).
 
-- __--log-folder__ or __-l__ \[<path>\] _(default: ./log)_
+- __--log-folder__ or __-l__ \[\<path\>\] _(default: ./log)_
 
     Path for all output logs. `SBA` generates its own log (same as what you'd see on the console), plus the output of every command
     is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. 
@@ -85,15 +83,15 @@ See ["INSTRUCTIONS"](#instructions) below for details about config file format.
 
 (Note: all notify-\* option names can also be shortened to just the last part after the dash, eg. `--to` and `--server`)
 
-- __--notify-to__ <e-mail\[,e-mail\]\[,...\]>   _(required for notifcation)_
+- __--notify-to__ \<e-mail\[,e-mail\]\[,...\]\>   _(required for notifcation)_
 
     One or more e-mail addresses separated by commas.  Blank to disable notification.
 
-- __--notify-server__ <host.name>  _(required for notifcation)_
+- __--notify-server__ \<host.name\>  _(required for notifcation)_
 
     Server to use for sending mail. Blank to disable notification.
 
-- __--notify-subj__ <subject> _(default: "\[SBA\] Build")_
+- __--notify-subj__ \<subject\> _(default: "\[SBA\] Build")_
 
     Subject prefix.  Status details get appended to this.
 
@@ -102,12 +100,12 @@ See ["INSTRUCTIONS"](#instructions) below for details about config file format.
     Whether to send notifcation even if no builds were performed (eg. no updates were detected, and nothing was forced). 
     Default is 0 (only notify when something was actually done).
 
-- __--notify-from__ <sender e-mail> _(default: first address in `notify-to`)_
+- __--notify-from__ \<sender e-mail\> _(default: first address in `notify-to`)_
 
     The sender's e-mail address (also where any bounces would go to).  Defaults to the first address found in `notify-to` option.
 
-- __--notify-user__ <username>
-- __--notify-pass__ <password>
+- __--notify-user__ \<username\>
+- __--notify-pass__ \<password\>
 
     Specify if your sever needs authentication.
 
@@ -115,7 +113,7 @@ See ["INSTRUCTIONS"](#instructions) below for details about config file format.
 
     Use TLS/SSL for server connection. Default is false.  Enable if it works with your server.
 
-- __--notify-port__ <port #> _(default: (blank))_
+- __--notify-port__ \<port #\> _(default: (blank))_
 
     Optional server port.  Default (blank) selects autmatically based on plain/ssl transport.
 
@@ -196,7 +194,7 @@ There are also some built-in command you can use -- see ["FTP Distribution"](#ft
 
 Builds are executed in the order in which they appear in the config file.  A failed build should not prevent other builds from executing.
 
-Build commands are run consecutively: clean -> build -> deploy -> distrib -> final. They are dependent on each other, meaning a failed step will halt
+Build commands are run consecutively: clean -\> build -\> deploy -\> distrib -\> final. They are dependent on each other, meaning a failed step will halt
 any futher processing of that build configuration.
 
 - __name__ _(default: "\[`block-name`\]")_
@@ -309,7 +307,7 @@ The built-in zip archive creator is very simple (and simplistic).  To use it, sp
 
 Where:
 
-- __-o__ <path/and/archive/name.zip>
+- __-o__ \<path/and/archive/name.zip\>
 
     Optionally, specify the resulting archive name and location, with absolute or relative path (relative is to current working folder).
     By default, the archive is named as the first added entry (file or folder name) plus ".zip" apppended, and placed in the same directory.
