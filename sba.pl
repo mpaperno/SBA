@@ -38,6 +38,7 @@ use Pod::Usage;
 use Net::FTP;
 use Mail::Sender;
 use Tie::File;
+use Archive::Zip qw(:ERROR_CODES);
 
 # "globals"
 my $DEBUG = 0;
@@ -298,6 +299,8 @@ if ($localRev == $remoteRev) {
 		$logRoot, 
 		$logFile,
 		$cmd,
+		$cmdArgs,
+		@cmdArgs,
 		$cmdRslt,
 		$cmdOutput,
 		$typ,
@@ -357,10 +360,14 @@ if ($localRev == $remoteRev) {
 			&log("~~$b_count~~ $typ step command: " . $tmp);
 			&_dbg("expanded cmd: <$cmd>");
 			
-			# check if special case for built-in ftp client
-			if ($cmd =~ s/^sba_ftp //i) { 
-				($cmdRslt, $cmdOutput) = ftpSend($cmd =~ /(`.+`|\S+)/g);
-				&_dbg("ftpSend returned: \n". $cmdOutput);
+			# check if special case for built-in commands (sba_ftp, sba_zip)
+			if ($cmd =~ m/^sba_\w{3} /i) { 
+				($cmd, $cmdArgs) = $cmd =~ m/^(sba_\w+) (.*)$/i;
+				#$cmdArgs =~ /(`.+`|\S+)/g;
+				@cmdArgs = split(' ', $cmdArgs);
+				&_dbg("SBA cmd: <$cmd> args: ". pp(\@cmdArgs));
+				($cmdRslt, $cmdOutput) = ($cmd eq "sba_ftp") ? ftpSend(@cmdArgs) : sbaZip(@cmdArgs);
+				&_dbg("SBA command returned: \n". $cmdOutput);
 				if ( open (my $tmp_h, '>', $logFile) ) {
 					print $tmp_h $cmdOutput;
 					close ($tmp_h);
@@ -697,6 +704,67 @@ sub ftpSend {
 	}
 }
 
+
+# zip utility
+# Usage:
+# sbaZip([-o archive_name] dir|file [dir|file] [...])
+sub sbaZip {
+	my $ret = 1; # return code: 0: success; 1: failure
+	my @retMsg;
+	my $zip;
+	my $file;
+	my $archfile;
+	my @expanded;
+	
+	my $archName = ($_[0] =~ m/-o/) ? splice(@_, 0, 2) : "";
+	my @files = @_;
+	
+	if (!@files) {
+		push @retMsg, "zip: ERROR: no file to zip or not enough arguments.";
+		goto EXIT;
+	}
+	
+	$zip = Archive::Zip->new();
+	while (@files) {
+		$file = shift @files;
+		if ($file =~ /(\*|\?)/) {		# handle wildcards
+			@expanded = `ls $file 2>&1`;
+			if ($expanded[0] =~ /not found/) {
+				push @retMsg, "zip: ERROR: no matches for $file";
+			} else {
+				chomp foreach (@expanded); # remove trailing newlines
+				@files = (@expanded, @files);
+			}
+		} elsif (-e -r $file) {	# zip if exists
+			$file =~ s/(.+)[\/\\]$/$1/;
+			if ($archName eq "") {
+				$archName = $file . ".zip";
+			}
+			($archfile = $file) =~ s/.*[\/\\](.+)$/$1/;
+			&_dbg("zip: Adding $file as $archfile");
+			if ((-f $file) ? ($zip->addFile($file, $archfile, 9)) : ($zip->addTree($file, $archfile, sub{-r}, 9) == AZ_OK)) {
+				push @retMsg, "zip: Added: $file as $archfile";
+			} else {
+				push @retMsg, "zip: ERROR adding $file";
+				goto EXIT;
+			}
+		} else {
+			push @retMsg, "zip: ERROR: <$file> not found.";
+		}
+	}
+	&_dbg("zip: Saving archive $archName");
+	if ( ($ret = $zip->writeToFileNamed($archName)) == AZ_OK ) {
+		push @retMsg, "zip: Created archive: $archName";
+	} else {
+		push @retMsg, "zip: ERROR creating archive: $archName (err code: $ret)";
+	}
+	
+	EXIT: {
+		return ($ret, join("\n", @retMsg));
+	}
+}
+
+
 # send notifactions about build job
 # Usage:
 sub notify {
@@ -751,7 +819,7 @@ __END__
  
 F<SBA> is designed as a very basic "build server" (or L<CI|http://en.wikipedia.org/wiki/Continuous_integration>, if you prefer).
 It can compare a local and remote code repo (SVN for now), and if changes are detected then it can pull the new version and launch build step(s)
-(eg. to build different versions of the same code, distribute builds to multiple places, or whatever).  It's basically a replacement for using
+(eg. to build different versions of the same code, distribute builds to multiple places, or whatever). It's basically a replacement for using 
 batch/shell scripts to manage code updates/builds/distribution, with some built-in features geared specifically for such jobs.
 
 All configuration is done via simple INI files. Each configuration can run multiple builds, and each build can run up to 5 steps, for example: 
@@ -759,6 +827,8 @@ I<clean>, I<build>, I<deploy>, I<distribute>, and I<finish>.  It can also be for
 
 Each step can run any system command, for example C<make>, along with any required arguments.  If you can run it from
 the command line, then it should work when run via F<SBA>. All steps are optional.
+
+A built-in simple L</Zip Archive Utility> is included for quick packaging of build results before distribution.
 
 For distribution of build results ("artifacts"), a built-in L<FTP client|/FTP Distribution> can be used to upload files to a server. 
 
@@ -964,8 +1034,8 @@ writeable by the system.  If it isn't, there will be no way to track the last bu
 =head3 Per-build Config parameters:
 
 These can appear in the [build-default] block or any build [named-block].  Note that the command names (clean/build/etc) are just arbitrary, meaning
-you can run any command you want on any step.  There is also one built-in command you can use to distribute files via FTP -- see the
-L</FTP Distribution> help topic, below.
+you can run any command you want on any step. The actual commands are simply passed to your system shell to execute, so they can be anything.  
+There are also some built-in command you can use -- see L</FTP Distribution> and L</Zip Archive Utility>, below.
 
 Builds are executed in the order in which they appear in the config file.  A failed build should not prevent other builds from executing.
 
@@ -990,6 +1060,8 @@ should be non-blank, otherwise nothing will be done for the build config.
 
 To determine successful execution of a command, it should return a standard system exit code when run. 
 Usually this means zero for sucess and anything else for failure.  Almost any common command-line tool will follow this standard.
+
+There are also some built-in command you can use -- see L</FTP Distribution> and L</Zip Archive Utility>, below.
 
 =item B<incremental> I<(default: 0 (false))>
 
@@ -1084,6 +1156,38 @@ Only files are allowed here, no directories.
  Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
  
 
+=head2 Zip Archive Utility
+
+The built-in zip archive creator is very simple (and simplistic).  To use it, specify this for a build step's command:
+
+C<sba_zip [-o archive-name.zip] file/dir [file/dir] [...]>
+
+Where:
+
+=over 4
+
+=item B<-o> <path/and/archive/name.zip>
+
+Optionally, specify the resulting archive name and location, with absolute or relative path (relative is to current working folder).
+By default, the archive is named as the first added entry (file or folder name) plus ".zip" apppended, and placed in the same directory.
+For example, if you use this command:
+
+C<sba_zip path/to/binfile.exe>
+
+The resulting archive will be F<path/to/binfile.exe.zip> .  If a wildcard is used, then the first actual resolved name becomes the archive's
+base name.  For example:
+
+C<sba_zip path/to/*.exe>
+
+Assuming that folder contains F<binfile-a.exe> and F<binfile-z.exe> exists in that folder, the resulting archive will be F<path/to/binfile-a.exe.zip>.
+
+=item B<file/dir>
+
+The file(s) of folder(s) to include in the archive, with absolute or relative path (relative is to current working folder).  
+Can include wildcards, as long as the system is able to expand that to a list of files. Separate multiple entries with a space. 
+
+=back
+
 =head2 E-Mail Notifications
 
 To receive a summary or the completed job, use the notify-* options L<described above|/Notification Options> to specify a destination e-mail address (or several, separated by comma) 
@@ -1096,7 +1200,7 @@ if necessary.  The C<notify-usetls> option provides some extra security, but mig
 
 =head1 REQUIRES
 
-Perl modules:
+Perl modules (most are standard:
 
 =over 4
 
@@ -1104,15 +1208,15 @@ Perl modules:
 
 =item L<Mail::Sender|http://search.cpan.org/~jenda/Mail-Sender/Sender.pm>
 
-=item L<Net::FTP>
+=item L<Net::FTP|http://search.cpan.org/search?query=net-ftp>
 
-=item L<File::Basename>
+=item L<Archive::Zip|http://search.cpan.org/search?query=archive-zip>
 
-=item L<Getopt::Long>
+=item L<Getopt::Long|http://search.cpan.org/search?query=getopt-long>
 
-=item L<Pod::Usage>
+=item L<Pod::Usage|http://search.cpan.org/search?query=pod-usage>
 
-=item L<Data::Dump> (for debug only)
+=item L<Data::Dump|http://search.cpan.org/search?query=data-dump> (for debug only)
 
 =back
 
