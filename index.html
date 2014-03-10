@@ -31,6 +31,7 @@
         </ul>
       </li>
       <li><a href="#FTP-Distribution">FTP Distribution</a></li>
+      <li><a href="#Zip-Archive-Utility">Zip Archive Utility</a></li>
       <li><a href="#E-Mail-Notifications">E-Mail Notifications</a></li>
     </ul>
   </li>
@@ -51,6 +52,8 @@
 <p>All configuration is done via simple INI files. Each configuration can run multiple builds, and each build can run up to 5 steps, for example: <i>clean</i>, <i>build</i>, <i>deploy</i>, <i>distribute</i>, and <i>finish</i>. It can also be forced to launch builds, regardless of repo status.</p>
 
 <p>Each step can run any system command, for example <code><code>make</code></code>, along with any required arguments. If you can run it from the command line, then it should work when run via <i>SBA</i>. All steps are optional.</p>
+
+<p>A built-in simple <a href="#Zip-Archive-Utility">&quot;Zip Archive Utility&quot;</a> is included for quick packaging of build results before distribution.</p>
 
 <p>For distribution of build results (&quot;artifacts&quot;), a built-in <a href="#FTP-Distribution">FTP client</a> can be used to upload files to a server.</p>
 
@@ -97,7 +100,7 @@
 <p>Configuration file to use. The path of this file also determines the script&#39;s working directory, which in turn determines the base path for all executed commands (all paths are relative to the working folder).</p>
 
 </dd>
-<dt id="log-folder-or--l-path-default:-.-log"><b>--log-folder or -l</b> [&lt;path&gt;] <i>(default: ./log)</i></dt>
+<dt id="log-folder-or--l-path-default:-.-log"><b>--log-folder</b> or <b>-l</b> [&lt;path&gt;] <i>(default: ./log)</i></dt>
 <dd>
 
 <p>Path for all output logs. <i>SBA</i> generates its own log (same as what you&#39;d see on the console), plus the output of every command is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. You might want to set it to be inside the build directory, as in the provided examples.</p>
@@ -105,25 +108,25 @@
 <p>To disable all logging, set this value to blank (eg. <code><code>--log-folder</code></code> or <code><code>log-folder =</code></code> in the config file.</p>
 
 </dd>
-<dt id="force-build-or---force-or--f-default:-0-false"><b>--force-build or --force or -f</b> <i>(default: 0 (false))</i></dt>
+<dt id="force-build-or---force-or--f-default:-0-false"><b>--force-build</b> or <b>--force</b> or <b>-f</b> <i>(default: 0 (false))</i></dt>
 <dd>
 
 <p>Always (re-)build even if no new repo version detected. This can also be specified per build config (see config file details, below).</p>
 
 </dd>
-<dt id="quiet-or--q"><b>--quiet or -q</b></dt>
+<dt id="quiet-or--q"><b>--quiet</b> or <b>-q</b></dt>
 <dd>
 
 <p>Do not print anything to the console (STDOUT/STDERR). Output is still printed to log file (if enabled), and sent in a notification (if enabled).</p>
 
 </dd>
-<dt id="debug-or--d"><b>--debug or -d</b></dt>
+<dt id="debug-or--d"><b>--debug</b> or <b>-d</b></dt>
 <dd>
 
 <p>Output extra runtime details.</p>
 
 </dd>
-<dt id="help-or--h-or"><b>--help or -h or -?</b></dt>
+<dt id="help-or--h-or"><b>--help</b> or <b>-h</b> or <b>-?</b></dt>
 <dd>
 
 <p>Print usage summary and options.</p>
@@ -167,10 +170,10 @@
 <p>Whether to send notifcation even if no builds were performed (eg. no updates were detected, and nothing was forced). Default is 0 (only notify when something was actually done).</p>
 
 </dd>
-<dt id="notify-from-sender-e-mail-default:-null"><b>--notify-from</b> &lt;sender e-mail&gt; <i>(default:</i> &lt;&gt; <i>(null))</i></dt>
+<dt id="notify-from-sender-e-mail-default:-first-address-in-notify-to"><b>--notify-from</b> &lt;sender e-mail&gt; <i>(default: first address in <code><code>notify-to</code></code>)</i></dt>
 <dd>
 
-<p>The sender&#39;s e-mail address (also where any bounces would go to).</p>
+<p>The sender&#39;s e-mail address (also where any bounces would go to). Defaults to the first address found in <code><code>notify-to</code></code> option.</p>
 
 </dd>
 <dt id="notify-user-username"><b>--notify-user</b> &lt;username&gt;</dt>
@@ -291,7 +294,7 @@
 
 <h3 id="Per-build-Config-parameters">Per-build Config parameters:</h3>
 
-<p>These can appear in the [build-default] block or any build [named-block]. Note that the command names (clean/build/etc) are just arbitrary, meaning you can run any command you want on any step. There is also one built-in command you can use to distribute files via FTP -- see the <a href="#FTP-Distribution">&quot;FTP Distribution&quot;</a> help topic, below.</p>
+<p>These can appear in the [build-default] block or any build [named-block]. Note that the command names (clean/build/etc) are just arbitrary, meaning you can run any command you want on any step. The actual commands are simply passed to your system shell to execute, so they can be anything. There are also some built-in command you can use -- see <a href="#FTP-Distribution">&quot;FTP Distribution&quot;</a> and <a href="#Zip-Archive-Utility">&quot;Zip Archive Utility&quot;</a>, below.</p>
 
 <p>Builds are executed in the order in which they appear in the config file. A failed build should not prevent other builds from executing.</p>
 
@@ -317,6 +320,8 @@
 <p>Commands to execute for a package. Commands specified in the [build-default] block will execute for each build, unless the same command is specified in the build-specific [named-block]. A blank value will disable the command. At least one command should be non-blank, otherwise nothing will be done for the build config.</p>
 
 <p>To determine successful execution of a command, it should return a standard system exit code when run. Usually this means zero for sucess and anything else for failure. Almost any common command-line tool will follow this standard.</p>
+
+<p>There are also some built-in command you can use -- see <a href="#FTP-Distribution">&quot;FTP Distribution&quot;</a> and <a href="#Zip-Archive-Utility">&quot;Zip Archive Utility&quot;</a>, below.</p>
 
 </dd>
 <dt id="incremental-default:-0-false"><b>incremental</b> <i>(default: 0 (false))</i></dt>
@@ -428,6 +433,38 @@
  Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
  </code></code></pre>
 
+<h2 id="Zip-Archive-Utility">Zip Archive Utility</h2>
+
+<p>The built-in zip archive creator is very simple (and simplistic). To use it, specify this for a build step&#39;s command:</p>
+
+<p><code><code>sba_zip [-o archive-name.zip] file/dir [file/dir] [...]</code></code></p>
+
+<p>Where:</p>
+
+<dl>
+
+<dt id="o-path-and-archive-name.zip"><b>-o</b> &lt;path/and/archive/name.zip&gt;</dt>
+<dd>
+
+<p>Optionally, specify the resulting archive name and location, with absolute or relative path (relative is to current working folder). By default, the archive is named as the first added entry (file or folder name) plus &quot;.zip&quot; apppended, and placed in the same directory. For example, if you use this command:</p>
+
+<p><code><code>sba_zip path/to/binfile.exe</code></code></p>
+
+<p>The resulting archive will be <i>path/to/binfile.exe.zip</i> . If a wildcard is used, then the first actual resolved name becomes the archive&#39;s base name. For example:</p>
+
+<p><code><code>sba_zip path/to/*.exe</code></code></p>
+
+<p>Assuming that folder contains <i>binfile-a.exe</i> and <i>binfile-z.exe</i> exists in that folder, the resulting archive will be <i>path/to/binfile-a.exe.zip</i>.</p>
+
+</dd>
+<dt id="file-dir"><b>file/dir</b></dt>
+<dd>
+
+<p>The file(s) of folder(s) to include in the archive, with absolute or relative path (relative is to current working folder). Can include wildcards, as long as the system is able to expand that to a list of files. Separate multiple entries with a space.</p>
+
+</dd>
+</dl>
+
 <h2 id="E-Mail-Notifications">E-Mail Notifications</h2>
 
 <p>To receive a summary or the completed job, use the notify-* options <a href="#Notification-Options">described above</a> to specify a destination e-mail address (or several, separated by comma) and a <b>server</b> to use for sending mail. The summary includes what is normally displayed on the console when you run <code><code>sba.pl</code></code>. The subject line includes an overall status and build totals. By default notices are only sent when something was actually done (build/distributed), although you can override this using <code><code>--notify-always</code></code> or <code><code>notify-always = 1</code></code> in the config file.</p>
@@ -436,7 +473,7 @@
 
 <h1 id="REQUIRES">REQUIRES</h1>
 
-<p>Perl modules:</p>
+<p>Perl modules (most are standard:</p>
 
 <dl>
 
@@ -448,23 +485,23 @@
 <dd>
 
 </dd>
-<dt id="Net::FTP"><a>Net::FTP</a></dt>
+<dt id="Net::FTP"><a href="http://search.cpan.org/search?query=net-ftp">Net::FTP</a></dt>
 <dd>
 
 </dd>
-<dt id="File::Basename"><a>File::Basename</a></dt>
+<dt id="Archive::Zip"><a href="http://search.cpan.org/search?query=archive-zip">Archive::Zip</a></dt>
 <dd>
 
 </dd>
-<dt id="Getopt::Long"><a>Getopt::Long</a></dt>
+<dt id="Getopt::Long"><a href="http://search.cpan.org/search?query=getopt-long">Getopt::Long</a></dt>
 <dd>
 
 </dd>
-<dt id="Pod::Usage"><a>Pod::Usage</a></dt>
+<dt id="Pod::Usage"><a href="http://search.cpan.org/search?query=pod-usage">Pod::Usage</a></dt>
 <dd>
 
 </dd>
-<dt id="Data::Dump-for-debug-only"><a>Data::Dump</a> (for debug only)</dt>
+<dt id="Data::Dump-for-debug-only"><a href="http://search.cpan.org/search?query=data-dump">Data::Dump</a> (for debug only)</dt>
 <dd>
 
 </dd>
