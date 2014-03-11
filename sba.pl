@@ -3,6 +3,7 @@
 ######################
 # SBA - Simple Build Agent (in Perl)
 # 
+# v1.20 - 11-Mar-14
 # v1.10 - 08-Mar-14
 # v1.00 - 07-Mar-14
 # v0.01 - 03-Mar-14
@@ -30,6 +31,7 @@ use strict;
 use warnings;
 use Cwd qw(abs_path chdir);
 use File::Basename qw(dirname);
+use File::Path qw(mkpath);
 use POSIX qw(strftime);
 use Getopt::Long qw(GetOptions GetOptionsFromString :config pass_through);
 use Data::Dump qw(pp);
@@ -63,6 +65,7 @@ $SIG{__DIE__}  = \&_die;
 # settings (these can be changed via as cmd-line options or config file [settings] section)
 my $configFile	= "./sba.ini";		# this is where to read the build config(s) from (required)
 my $forceBuild	= 0;				# always (re-)build
+my $workFolder	= "";				# working folder, auto-set to path of config file if blank
 my $logFolder	= "./log";			# folder name for generated build output logs (absolute, or relative to working folder). Blank to disable logging.
 my %notify  = (
 	always	=> 0,					# set to true to notify even if nothing was done (no new version detected)
@@ -109,7 +112,6 @@ my $svnUpdtCmd = "svn update -r HEAD --force";
 # declarations/misc
 my @buildConfigs;
 my %cfg;			# tied to config file
-my $workFolder;
 my $tmp;
 my $localRev = 0;
 my $remoteRev = 0;
@@ -127,6 +129,7 @@ my %status = (
 # refers back to local vars, set above
 my %options = (
 	"config"		=> \$configFile,
+	"work-folder"	=> \$workFolder,
 	"log-folder"	=> \$logFolder,
 	"notify-always"	=> \$notify{always},
 	"notify-to"		=> \$notify{recip},
@@ -147,6 +150,7 @@ my %options = (
 # should correspond to %options hash
 my @optspec = (
 	'config|c=s',
+	'work-folder|w=s',
 	'log-folder|l:s',
 	'notify-to|to=s',
 	'notify-server|server=s',
@@ -157,7 +161,7 @@ my @optspec = (
 	'notify-subj|subj=s',
 	'notify-usetls|usetls:1',
 	'notify-always|always:1',
-	'force-build|force|f:1',
+	'force-build|f:1',
 	'debug|d:1',
 	'quiet|q:1'
 );
@@ -237,28 +241,40 @@ if ($notify{sender} eq "") {
 # START
 #
 
-# set working folder based on location of config file
-$workFolder = dirname(abs_path($configFile));
+# first change to config file's directory (so work-folder can be specified in cmd line or cfg file using relative paths)
+$tmp = dirname(abs_path($configFile))
+	or &_die("Could not find working directory for <$configFile>: $!");
+chdir $tmp
+	or &_die("Could not change to directory <$tmp>: $!");
 
-chdir $workFolder 
-	or &_die("Could not change to directory $workFolder");
+# change working folder if specified on cmd line or in cfg file
+if ($workFolder) {
+	$workFolder = abs_path($workFolder)
+		or &_die("Could not find working directory <$workFolder>: $!");
+	chdir $workFolder
+		or &_die("Could not change to working directory <$workFolder>: $!");
+} else {
+	$workFolder = $tmp;
+}
 
 # open the main log file, if any
 if ($logFolder ) {
-	$logFolder = $workFolder ."/". $logFolder;
 	validateDir($logFolder)
-		or &_die("Failed to create log directory: $!");
+		or &_die("Failed to create log directory <$logFolder>: $!");
+	$logFolder = abs_path($logFolder);
 	my $fullLogfilePath = $logFolder ."/". $logFileName . $logFileSfx;
 	open ($LOG_H, '>', $fullLogfilePath)
 		or &_die("Could not open log file $fullLogfilePath : $!");
-
 } else {
 	$disableLog = 1;
 }
 
+# all directories verified and now inside working folder.
+
 &log("Starting...");
 &log("Found config file at $configFile");
 &log("Working folder is $workFolder");
+&log("Logging " . (($disableLog) ? "disabled" : "enabled in $logFolder"));
 
 # get local svn version
 &log("Checking local version...");
@@ -572,7 +588,7 @@ sub svnVersion {
 sub validateDir {
 	my $dir = shift(@_);
 	my $ret = 0;
-	$ret = 1 if (-e $dir || mkdir $dir);
+	$ret = 1 if (-d $dir || mkpath($dir));
 	return $ret;
 }
 
@@ -809,13 +825,10 @@ __END__
 
 =pod
 
-=head1 NAME
+=head1 Simple Build Agent (in Perl)
 
- 
- Simple Build Agent (in Perl)
- 
 
-=head1 DESCRIPTION
+=head1 Description
  
 F<SBA> is designed as a very basic "build server" (or L<CI|http://en.wikipedia.org/wiki/Continuous_integration>, if you prefer).
 It can compare a local and remote code repo (SVN for now), and if changes are detected then it can pull the new version and launch build step(s)
@@ -838,9 +851,9 @@ Limitations/TODO:
 
 =over 4
 
-=item - Only checks the currently checked-out branch of a repo for updates.  Does not detect new branches/tags/etc.
+=item Only checks the currently checked-out branch of a repo for updates.  Does not detect new branches/tags/etc.
 
-=item - Add Git support.
+=item Add Git support.
 
 =back
 
@@ -859,7 +872,7 @@ See full L</INSTRUCTIONS> below (run C<sba --man> if needed).
  sba.pl -c <config file> [other options]
  
  
-=head1 OPTIONS
+=head1 Options
 
 Note: all options can appear in the configuration file's [settings] block using the same names (long versions) as shown here, minus the "--" part.
 See L</INSTRUCTIONS> below for details about config file format.
@@ -868,16 +881,20 @@ See L</INSTRUCTIONS> below for details about config file format.
 
 =item B<-c> <file>  I<(default: ./sba.ini)>
 
-Configuration file to use. The path of this file also determines the script's working directory,
-which in turn determines the base path for all executed commands (all paths are relative to the working folder).
+Configuration file to use. The path of this file also determines the default working directory, unless C<--work-folder> is also specified.
 
-=item B<--log-folder> or B<-l> [<path>] I<(default: ./log)>
+=item B<--work-folder> or B<-w> [<path>] I<(default: path of config file)>
+
+Set working directory specifically. The working directory determines the base path for all executed commands (all paths are relative to this).
+
+=item B<--log-folder> or B<-l> [<path>] I<(default: {work-folder}/log)>
 
 Path for all output logs. F<SBA> generates its own log (same as what you'd see on the console), plus the output of every command
 is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. 
-You might want to set it to be inside the build directory, as in the provided examples. 
+You might want to set it to be inside the build directory, as in the provided examples. Default is F<log> folder inside the current
+working directory.
 
-To disable all logging, set this value to blank (eg. C<--log-folder> or C<log-folder => in the config file. 
+To disable all logging, set this value to blank (eg. "C<--log-folder>" or "C<log-folder = >" in the config file. 
 
 =item B<--force-build> or B<--force> or B<-f> I<(default: 0 (false))>
 
@@ -944,7 +961,7 @@ Optional server port.  Default (blank) selects autmatically based on plain/ssl t
 
 =back
 
-=head1 INSTRUCTIONS
+=head1 Instructions
 
 F<SBA> uses a configuration file to determine which tasks to perform.  A config file is needed to process any
 actual build steps you want. The config can provide a set of default actions to perform for each step, and
@@ -992,36 +1009,36 @@ which is much easier to manage than the command line parameters.
 
 =over 4
 
-=item - Config file (mostly) follows standard L<.ini file format|http://en.wikipedia.org/wiki/INI_file> specifications, with the following caveats:
+=item Config file (mostly) follows standard L<.ini file format|http://en.wikipedia.org/wiki/INI_file> specifications, with the following caveats:
 
 =over 8
 
-=item - Parameter and variable names are CASE SENSITIVE!
+=item Parameter and variable names are CASE SENSITIVE!
 
-=item - Comments can start with a semicolon or hash mark (; or #).  Comments must start on their own line.
+=item Comments can start with a semicolon or hash mark (; or #).  Comments must start on their own line.
 
-=item - Long lines can be split using a backslash (\) as the last character of the line to be continued, immediately followed by a newline. eg:
-
+=item Long lines can be split using a backslash (\) as the last character of the line to be continued, immediately followed by a newline. eg:
+ 
   [Section]
   Parameter=this parameter \
     spreads across \
     a few lines
-
+ 
 =back
 
-=item - The optional B<[settings]> block describes F<SBA> runtime options.  Any parameter listed in L</OPTIONS> can be used here 
+=item The optional B<[settings]> block describes F<SBA> runtime options.  Any parameter listed in L</OPTIONS> can be used here 
 (simply ommit the leading C<--> before the option name).
 
-=item - The optional B<[build-default]> block describes settings which are shared by all build configs.
+=item The optional B<[build-default]> block describes settings which are shared by all build configs.
 
-=item - Each subsequent B<[named-block]> describes a build configuration.  Block names must be unique, and are used as the build name by default.
+=item Each subsequent B<[named-block]> describes a build configuration.  Block names must be unique, and are used as the build name by default.
 They are processed in order of their appearance in the .ini file.
 
-=item - Strings may contain embedded references (macros) to other named params, preceded with a $ sign. 
+=item Strings may contain embedded references (macros) to other named params, preceded with a $ sign. 
 All macros are evaluated when each config is run (vs. when the config file is initially read).  Check the example above to see how the C<$dir> and
 C<$name> variables are used (which correspond to the current build directory and build name, respectively).
 
-=item - Any arbitrary variable can be declared and then used as a macro (like C<$common> is used in the example above).  
+=item Any arbitrary variable can be declared and then used as a macro (like C<$common> is used in the example above).  
 Typical variable name syntax rules apply (no spaces, etc).  They can appear in any order in the confg 
 file (you do not have to declare a variable before using it, as long as it appears somewhere in the config file).
 
@@ -1107,6 +1124,11 @@ Status code from last run/build attempt. Explained:
 
 =back
  
+=head1 Built-in Utilities for Scripted Builds
+ 
+F<SBA> provides some built-in utilities which can be used as part of a build step.  You can call them just as you
+would any other system command.  To ensure uniqueness, the build-in commands start with C<sba_>, eg. C<sba_ftp> and C<sba_zip>.
+ 
 =head2 FTP Distribution
 
 To use the built-in FTP client to upload files, specify the follwing command for any of the build steps:
@@ -1142,19 +1164,8 @@ The file(s) to upload, with absolute or relative path (relative is to current wo
 as long as the system is able to expand that to a list of files. Separate multiple entries with a space. 
 Only files are allowed here, no directories.
 
+
 =back
-
- * Note that you could pass a system command for any value by enclosing it in backticks (`...`) which is standard Perl
- way to capture output from the system.  Eg. <ftp pass> = `cat ~/mypass.txt`  to read the contents of mypass.txt in 
- current user's home directory, and then use it as the password parameter value. 
- 
- As another example, if the file "myftp" contains three words: 
- 
- my.server.org myuser mypass
-
- Then:        sba_ftp `cat ~/myftp` /dest/folder ./file/to/upload.ext  
- Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
- 
 
 =head2 Zip Archive Utility
 
@@ -1170,16 +1181,10 @@ Where:
 
 Optionally, specify the resulting archive name and location, with absolute or relative path (relative is to current working folder).
 By default, the archive is named as the first added entry (file or folder name) plus ".zip" apppended, and placed in the same directory.
-For example, if you use this command:
-
-C<sba_zip path/to/binfile.exe>
-
+For example, if you use this command: C<sba_zip path/to/binfile.exe>
 The resulting archive will be F<path/to/binfile.exe.zip> .  If a wildcard is used, then the first actual resolved name becomes the archive's
-base name.  For example:
-
-C<sba_zip path/to/*.exe>
-
-Assuming that folder contains F<binfile-a.exe> and F<binfile-z.exe> exists in that folder, the resulting archive will be F<path/to/binfile-a.exe.zip>.
+base name.  For example: C<sba_zip path/to/*.exe>
+Assuming that folder contains F<binfile-a.exe> and F<binfile-z.exe>, the resulting archive name will be F<path/to/binfile-a.exe.zip>.
 
 =item B<file/dir>
 
@@ -1188,7 +1193,21 @@ Can include wildcards, as long as the system is able to expand that to a list of
 
 =back
 
-=head2 E-Mail Notifications
+=head2 Embedding system commands 
+  
+Note that you could pass a system command as an argument value by enclosing it in backticks (`...`) which is standard Perl
+way to capture output from the system.  Eg.  set I<ftp pass> to C<`cat ~/mypass.txt`>  to read the contents of mypass.txt in 
+current user's home directory, and then use it as the password parameter value. 
+
+  As another example, if the file "myftp" contains three words: 
+
+  my.server.org myuser mypass
+
+  Then:        sba_ftp `cat ~/myftp` /dest/folder ./file/to/upload.ext
+  Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
+ 
+
+=head1 E-Mail Notifications
 
 To receive a summary or the completed job, use the notify-* options L<described above|/Notification Options> to specify a destination e-mail address (or several, separated by comma) 
 and a B<server> to use for sending mail.  The summary includes what is normally displayed on the console when you run C<sba.pl>.  The subject line includes an
@@ -1198,9 +1217,9 @@ C<--notify-always> or C<notify-always = 1> in the config file.
 The simplest scenario is if your server is local or otherwise can authenticate you w/out logging in (eg. IP address).  You can also specify a user/pass
 if necessary.  The C<notify-usetls> option provides some extra security, but might not work due to certificate issues with the underlying Perl SSL module.
 
-=head1 REQUIRES
+=head1 Requires
 
-Perl modules (most are standard:
+Perl 5.10.01 or higher.  Windows or Linux (& probably OS X). Perl modules (most are standard):
 
 =over 4
 
@@ -1225,13 +1244,15 @@ shell/batch script which first sets up the environment before calling this progr
 
 E-Mail B<notifications> require a mail server capable of relaying the mail (see L</E-Mail Notifications>).
 
-Windows users might need cygwin/msys or some other version of GNU tools in the current PATH.  If you are building software, 
-you probably have it already.  
+Windows users may want cygwin/msys or some other version of GNU tools in the current PATH.  If you are building software, 
+you probably have this already.  You can always try it w/out that and see if it complains about any missing system commands.
+The GnuWin32 collection of L<CoreUtils for Windows|http://gnuwin32.sourceforge.net/packages/coreutils.htm> is highly recommended.
 
-=head1 AUTHOR
+=head1 Author
 
  
  Maxim Paperno - MPaperno@WorldDesign.com
+ https://github.com/mpaperno/SBA
  
 
 =head1 Copyright, License, and Disclaimer
