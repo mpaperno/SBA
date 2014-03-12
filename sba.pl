@@ -269,7 +269,7 @@ if ($logFolder ) {
 	$disableLog = 1;
 }
 
-# all directories verified and now inside working folder.
+# all directories verified and now inside working folder, with open log file.
 
 &log("Starting...");
 &log("Found config file at $configFile");
@@ -436,8 +436,6 @@ if ($localRev == $remoteRev) {
 
 } # end configs proc block
 
-&_dbg(pp("Result buildConfigs array:", \@buildConfigs));
-
 #} # END MAIN:
 
 END: {
@@ -488,14 +486,18 @@ END: {
 				&log(3, "Skipping notifcation (no updates).");
 			}
 		} else {
-			&log(3, "Skipping notifcation (no recipient or server).");
+			&log(3, "Skipping notifcation (no recipient and/or server).");
 		}
 	};
 	&_err("Error trying to notify: $@") if $@;
 	
 	&log("Done, exiting.");
 	
-	close ($LOG_H) if ($LOG_H);
+	&_dbg(pp("Result buildConfigs array:", \@buildConfigs,
+			"Status hash:", \%status,
+			"Notify hash:", \%notify));
+	
+	close ($LOG_H) if ($LOG_H && $LOG_H->opened());
 	
 	exit $status{this};
 
@@ -517,7 +519,6 @@ sub log {
 	my $msg = shift;
 	return 0 if (!$msg || ($lvl == 5 && !$DEBUG));
 	
-	my $haveLog = ($LOG_H && tell($LOG_H) != -1);
 	my ($clr_p, $clr_f, $clr_l) = caller;
 	my $dt = strftime "%m/%d/%y %H:%M:%S", localtime;
 	my $typName = "INF";
@@ -538,7 +539,7 @@ sub log {
 		print STDOUT $out if !$QUIET;
 		
 		# print to log handle if we have one
-		print $LOG_H $dsout if $haveLog;
+		print $LOG_H $dsout if ($LOG_H && $LOG_H->opened());
 	
 		# save to global output
 		$OUTPUT .= $dsout; 
@@ -550,7 +551,7 @@ sub log {
 		return 0;
 	};
 	if ($@) {
-		print "PANIC: Failure in log() function: $@ \n";
+		print "$clr_p PANIC: Failure in log() function: $@ \n";
 		exit 1;
 	}
 }
