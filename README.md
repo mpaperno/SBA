@@ -1,7 +1,6 @@
 # Simple Build Agent (in Perl)
-    
 
-# DESCRIPTION
+## Description
 
 `SBA` is designed as a very basic "build server" (or [CI](http://en.wikipedia.org/wiki/Continuous_integration), if you prefer).
 It can compare a local and remote code repo (SVN for now), and if changes are detected then it can pull the new version and launch build step(s)
@@ -22,13 +21,13 @@ Finally, a notification e-mail can be sent to multiple recipients, including a f
 
 Limitations/TODO: 
 
-- - Only checks the currently checked-out branch of a repo for updates.  Does not detect new branches/tags/etc.
-- - Add Git support.
+- Only checks the currently checked-out branch of a repo for updates.  Does not detect new branches/tags/etc.
+- Add Git support.
 
 WARNING: The whole point of this program is to execute system commands (scripts) contained in a configuration file.  As such,
 you need to take great care if running configuration files from untrusted sources (like a public code repo). In fact you shouldn't do it, ever!
 
-# SYNOPSIS
+## SYNOPSIS
 
 See full ["INSTRUCTIONS"](#instructions) below (run `sba --man` if needed).
 
@@ -41,23 +40,27 @@ See full ["INSTRUCTIONS"](#instructions) below (run `sba --man` if needed).
     
     
 
-# OPTIONS
+## Options
 
 Note: all options can appear in the configuration file's \[settings\] block using the same names (long versions) as shown here, minus the "--" part.
 See ["INSTRUCTIONS"](#instructions) below for details about config file format.
 
 - __-c__ \<file\>  _(default: ./sba.ini)_
 
-    Configuration file to use. The path of this file also determines the script's working directory,
-    which in turn determines the base path for all executed commands (all paths are relative to the working folder).
+    Configuration file to use. The path of this file also determines the default working directory, unless `--work-folder` is also specified.
 
-- __--log-folder__ or __-l__ \[\<path\>\] _(default: ./log)_
+- __--work-folder__ or __-w__ \[\<path\>\] _(default: path of config file)_
+
+    Set working directory specifically. The working directory determines the base path for all executed commands (all paths are relative to this).
+
+- __--log-folder__ or __-l__ \[\<path\>\] _(default: {work-folder}/log)_
 
     Path for all output logs. `SBA` generates its own log (same as what you'd see on the console), plus the output of every command
     is directed to its own log file (eg. log/build1-clean.log, log/build1-build.log, etc). Absolute path, or relative to working directory. 
-    You might want to set it to be inside the build directory, as in the provided examples. 
+    You might want to set it to be inside the build directory, as in the provided examples. Default is `log` folder inside the current
+    working directory.
 
-    To disable all logging, set this value to blank (eg. `--log-folder` or `log-folder =` in the config file. 
+    To disable all logging, set this value to blank (eg. "`--log-folder`" or "`log-folder = `" in the config file. 
 
 - __--force-build__ or __--force__ or __-f__ _(default: 0 (false))_
 
@@ -79,7 +82,7 @@ See ["INSTRUCTIONS"](#instructions) below for details about config file format.
 
     Print full documentation.
 
-## Notification Options 
+### Notification Options 
 
 (Note: all notify-\* option names can also be shortened to just the last part after the dash, eg. `--to` and `--server`)
 
@@ -117,16 +120,16 @@ See ["INSTRUCTIONS"](#instructions) below for details about config file format.
 
     Optional server port.  Default (blank) selects autmatically based on plain/ssl transport.
 
-# INSTRUCTIONS
+## Instructions
 
 `SBA` uses a configuration file to determine which tasks to perform.  A config file is needed to process any
 actual build steps you want. The config can provide a set of default actions to perform for each step, and
 specific actions for individual build(s). In addition, all `SBA` options can be set in the config file, 
 which is much easier to manage than the command line parameters.
 
-## Configuration File Details
+### Configuration File Details
 
-### Example config file:
+#### Example config file:
 
     -----------------------------------------------------------
     [settings]
@@ -159,26 +162,27 @@ which is much easier to manage than the command line parameters.
     enable        = 1
     -----------------------------------------------------------
 
-### Structure of a configuration file:
+#### Structure of a configuration file:
 
-- - Config file (mostly) follows standard [.ini file format](http://en.wikipedia.org/wiki/INI_file) specifications, with the following caveats:
-    - - Parameter and variable names are CASE SENSITIVE!
-    - - Comments can start with a semicolon or hash mark (; or #).  Comments must start on their own line.
-    - - Long lines can be split using a backslash (\\) as the last character of the line to be continued, immediately followed by a newline. eg:
+- Config file (mostly) follows standard [.ini file format](http://en.wikipedia.org/wiki/INI_file) specifications, with the following caveats:
+    - Parameter and variable names are CASE SENSITIVE!
+    - Comments can start with a semicolon or hash mark (; or #).  Comments must start on their own line.
+    - Long lines can be split using a backslash (\\) as the last character of the line to be continued, immediately followed by a newline. eg:
 
-            [Section]
-            Parameter=this parameter \
-              spreads across \
-              a few lines
-- - The optional __\[settings\]__ block describes `SBA` runtime options.  Any parameter listed in ["OPTIONS"](#options) can be used here 
+             [Section]
+             Parameter=this parameter \
+               spreads across \
+               a few lines
+            
+- The optional __\[settings\]__ block describes `SBA` runtime options.  Any parameter listed in ["OPTIONS"](#options) can be used here 
 (simply ommit the leading `--` before the option name).
-- - The optional __\[build-default\]__ block describes settings which are shared by all build configs.
-- - Each subsequent __\[named-block\]__ describes a build configuration.  Block names must be unique, and are used as the build name by default.
+- The optional __\[build-default\]__ block describes settings which are shared by all build configs.
+- Each subsequent __\[named-block\]__ describes a build configuration.  Block names must be unique, and are used as the build name by default.
 They are processed in order of their appearance in the .ini file.
-- - Strings may contain embedded references (macros) to other named params, preceded with a $ sign. 
+- Strings may contain embedded references (macros) to other named params, preceded with a $ sign. 
 All macros are evaluated when each config is run (vs. when the config file is initially read).  Check the example above to see how the `$dir` and
 `$name` variables are used (which correspond to the current build directory and build name, respectively).
-- - Any arbitrary variable can be declared and then used as a macro (like `$common` is used in the example above).  
+- Any arbitrary variable can be declared and then used as a macro (like `$common` is used in the example above).  
 Typical variable name syntax rules apply (no spaces, etc).  They can appear in any order in the confg 
 file (you do not have to declare a variable before using it, as long as it appears somewhere in the config file).
 
@@ -186,7 +190,7 @@ file (you do not have to declare a variable before using it, as long as it appea
 writeable by the system.  If it isn't, there will be no way to track the last built version, which may trigger a rebuild on each run.
 \*\* It is a good idea to keep backups of your INI config files in case anything goes completely awry and corrupts the original config \*\*
 
-### Per-build Config parameters:
+#### Per-build Config parameters:
 
 These can appear in the \[build-default\] block or any build \[named-block\].  Note that the command names (clean/build/etc) are just arbitrary, meaning
 you can run any command you want on any step. The actual commands are simply passed to your system shell to execute, so they can be anything.  
@@ -254,7 +258,12 @@ Currently only the `last_built_ver` has any real significance, the rest are just
         where step: 1=clean; 2=build; 3=deploy; 4=distrib; 5=finish. 
         Eg. 40=finished distrib, or 110=error during clean
 
-## FTP Distribution
+## Built-in Utilities for Scripted Builds
+
+`SBA` provides some built-in utilities which can be used as part of a build step.  You can call them just as you
+would any other system command.  To ensure uniqueness, the build-in commands start with `sba_`, eg. `sba_ftp` and `sba_zip`.
+
+### FTP Distribution
 
 To use the built-in FTP client to upload files, specify the follwing command for any of the build steps:
 
@@ -287,19 +296,7 @@ Where:
     as long as the system is able to expand that to a list of files. Separate multiple entries with a space. 
     Only files are allowed here, no directories.
 
-    * Note that you could pass a system command for any value by enclosing it in backticks (`...`) which is standard Perl
-    way to capture output from the system.  Eg. <ftp pass> = `cat ~/mypass.txt`  to read the contents of mypass.txt in 
-    current user's home directory, and then use it as the password parameter value. 
-    
-    As another example, if the file "myftp" contains three words: 
-    
-    my.server.org myuser mypass
-
-    Then:        sba_ftp `cat ~/myftp` /dest/folder ./file/to/upload.ext  
-    Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
-    
-
-## Zip Archive Utility
+### Zip Archive Utility
 
 The built-in zip archive creator is very simple (and simplistic).  To use it, specify this for a build step's command:
 
@@ -311,21 +308,29 @@ Where:
 
     Optionally, specify the resulting archive name and location, with absolute or relative path (relative is to current working folder).
     By default, the archive is named as the first added entry (file or folder name) plus ".zip" apppended, and placed in the same directory.
-    For example, if you use this command:
-
-    `sba_zip path/to/binfile.exe`
-
+    For example, if you use this command: `sba_zip path/to/binfile.exe`
     The resulting archive will be `path/to/binfile.exe.zip` .  If a wildcard is used, then the first actual resolved name becomes the archive's
-    base name.  For example:
-
-    `sba_zip path/to/*.exe`
-
-    Assuming that folder contains `binfile-a.exe` and `binfile-z.exe` exists in that folder, the resulting archive will be `path/to/binfile-a.exe.zip`.
+    base name.  For example: `sba_zip path/to/*.exe`
+    Assuming that folder contains `binfile-a.exe` and `binfile-z.exe`, the resulting archive name will be `path/to/binfile-a.exe.zip`.
 
 - __file/dir__
 
     The file(s) of folder(s) to include in the archive, with absolute or relative path (relative is to current working folder).  
     Can include wildcards, as long as the system is able to expand that to a list of files. Separate multiple entries with a space. 
+
+### Embedding system commands 
+
+Note that you could pass a system command as an argument value by enclosing it in backticks (\`...\`) which is standard Perl
+way to capture output from the system.  Eg.  set _ftp pass_ to `` `cat ~/mypass.txt` ``  to read the contents of mypass.txt in 
+current user's home directory, and then use it as the password parameter value. 
+
+     As another example, if the file "myftp" contains three words: 
+
+     my.server.org myuser mypass
+
+     Then:        sba_ftp `cat ~/myftp` /dest/folder ./file/to/upload.ext
+     Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
+    
 
 ## E-Mail Notifications
 
@@ -337,9 +342,9 @@ overall status and build totals.  By default notices are only sent when somethin
 The simplest scenario is if your server is local or otherwise can authenticate you w/out logging in (eg. IP address).  You can also specify a user/pass
 if necessary.  The `notify-usetls` option provides some extra security, but might not work due to certificate issues with the underlying Perl SSL module.
 
-# REQUIRES
+## Requires
 
-Perl modules (most are standard:
+Perl 5.10.01 or higher.  Windows or Linux (& probably OS X). Perl modules (most are standard):
 
 - [Config::IniFiles](http://search.cpan.org/search?query=config-inifile)
 - [Mail::Sender](http://search.cpan.org/~jenda/Mail-Sender/Sender.pm)
@@ -354,15 +359,17 @@ shell/batch script which first sets up the environment before calling this progr
 
 E-Mail __notifications__ require a mail server capable of relaying the mail (see ["E-Mail Notifications"](#e-mail-notifications)).
 
-Windows users might need cygwin/msys or some other version of GNU tools in the current PATH.  If you are building software, 
-you probably have it already.  
+Windows users may want cygwin/msys or some other version of GNU tools in the current PATH.  If you are building software, 
+you probably have this already.  You can always try it w/out that and see if it complains about any missing system commands.
+The GnuWin32 collection of [CoreUtils for Windows](http://gnuwin32.sourceforge.net/packages/coreutils.htm) is highly recommended.
 
-# AUTHOR
+## Author
 
     Maxim Paperno - MPaperno@WorldDesign.com
+    https://github.com/mpaperno/SBA
     
 
-# Copyright, License, and Disclaimer
+## Copyright, License, and Disclaimer
 
 Copyright (c) 2014 by Maxim Paperno. All rights reserved.
 

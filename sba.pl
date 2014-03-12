@@ -829,7 +829,7 @@ __END__
 =head1 Simple Build Agent (in Perl)
 
 
-=head1 Description
+=head2 Description
  
 F<SBA> is designed as a very basic "build server" (or L<CI|http://en.wikipedia.org/wiki/Continuous_integration>, if you prefer).
 It can compare a local and remote code repo (SVN for now), and if changes are detected then it can pull the new version and launch build step(s)
@@ -861,7 +861,7 @@ Limitations/TODO:
 WARNING: The whole point of this program is to execute system commands (scripts) contained in a configuration file.  As such,
 you need to take great care if running configuration files from untrusted sources (like a public code repo). In fact you shouldn't do it, ever!
 
-=head1 SYNOPSIS
+=head2 SYNOPSIS
 
 See full L</INSTRUCTIONS> below (run C<sba --man> if needed).
  
@@ -873,7 +873,7 @@ See full L</INSTRUCTIONS> below (run C<sba --man> if needed).
  sba.pl -c <config file> [other options]
  
  
-=head1 Options
+=head2 Options
 
 Note: all options can appear in the configuration file's [settings] block using the same names (long versions) as shown here, minus the "--" part.
 See L</INSTRUCTIONS> below for details about config file format.
@@ -919,7 +919,7 @@ Print full documentation.
 
 =back
 
-=head2 Notification Options 
+=head3 Notification Options 
 
 (Note: all notify-* option names can also be shortened to just the last part after the dash, eg. C<--to> and C<--server>)
 
@@ -962,16 +962,16 @@ Optional server port.  Default (blank) selects autmatically based on plain/ssl t
 
 =back
 
-=head1 Instructions
+=head2 Instructions
 
 F<SBA> uses a configuration file to determine which tasks to perform.  A config file is needed to process any
 actual build steps you want. The config can provide a set of default actions to perform for each step, and
 specific actions for individual build(s). In addition, all F<SBA> options can be set in the config file, 
 which is much easier to manage than the command line parameters.
 
-=head2 Configuration File Details
+=head3 Configuration File Details
 
-=head3 Example config file:
+=head4 Example config file:
  
  
   -----------------------------------------------------------
@@ -1006,7 +1006,7 @@ which is much easier to manage than the command line parameters.
   -----------------------------------------------------------
 
 
-=head3 Structure of a configuration file:
+=head4 Structure of a configuration file:
 
 =over 4
 
@@ -1049,7 +1049,7 @@ file (you do not have to declare a variable before using it, as long as it appea
 writeable by the system.  If it isn't, there will be no way to track the last built version, which may trigger a rebuild on each run.
 ** It is a good idea to keep backups of your INI config files in case anything goes completely awry and corrupts the original config **
 
-=head3 Per-build Config parameters:
+=head4 Per-build Config parameters:
 
 These can appear in the [build-default] block or any build [named-block].  Note that the command names (clean/build/etc) are just arbitrary, meaning
 you can run any command you want on any step. The actual commands are simply passed to your system shell to execute, so they can be anything.  
@@ -1125,12 +1125,12 @@ Status code from last run/build attempt. Explained:
 
 =back
  
-=head1 Built-in Utilities for Scripted Builds
+=head2 Built-in Utilities for Scripted Builds
  
 F<SBA> provides some built-in utilities which can be used as part of a build step.  You can call them just as you
 would any other system command.  To ensure uniqueness, the build-in commands start with C<sba_>, eg. C<sba_ftp> and C<sba_zip>.
  
-=head2 FTP Distribution
+=head3 FTP Distribution
 
 To use the built-in FTP client to upload files, specify the follwing command for any of the build steps:
 
@@ -1168,7 +1168,7 @@ Only files are allowed here, no directories.
 
 =back
 
-=head2 Zip Archive Utility
+=head3 Zip Archive Utility
 
 The built-in zip archive creator is very simple (and simplistic).  To use it, specify this for a build step's command:
 
@@ -1194,7 +1194,7 @@ Can include wildcards, as long as the system is able to expand that to a list of
 
 =back
 
-=head2 Embedding system commands 
+=head3 Embedding system commands 
   
 Note that you could pass a system command as an argument value by enclosing it in backticks (`...`) which is standard Perl
 way to capture output from the system.  Eg.  set I<ftp pass> to C<`cat ~/mypass.txt`>  to read the contents of mypass.txt in 
@@ -1208,7 +1208,7 @@ current user's home directory, and then use it as the password parameter value.
   Results in:  sba_ftp my.server.org myuser mypass /dest/folder ./file/to/upload.ext
  
 
-=head1 E-Mail Notifications
+=head2 E-Mail Notifications
 
 To receive a summary or the completed job, use the notify-* options L<described above|/Notification Options> to specify a destination e-mail address (or several, separated by comma) 
 and a B<server> to use for sending mail.  The summary includes what is normally displayed on the console when you run C<sba.pl>.  The subject line includes an
@@ -1218,7 +1218,7 @@ C<--notify-always> or C<notify-always = 1> in the config file.
 The simplest scenario is if your server is local or otherwise can authenticate you w/out logging in (eg. IP address).  You can also specify a user/pass
 if necessary.  The C<notify-usetls> option provides some extra security, but might not work due to certificate issues with the underlying Perl SSL module.
 
-=head1 Requires
+=head2 Requires
 
 Perl 5.10.01 or higher.  Windows or Linux (& probably OS X). Perl modules (most are standard):
 
@@ -1249,14 +1249,14 @@ Windows users may want cygwin/msys or some other version of GNU tools in the cur
 you probably have this already.  You can always try it w/out that and see if it complains about any missing system commands.
 The GnuWin32 collection of L<CoreUtils for Windows|http://gnuwin32.sourceforge.net/packages/coreutils.htm> is highly recommended.
 
-=head1 Author
+=head2 Author
 
  
  Maxim Paperno - MPaperno@WorldDesign.com
  https://github.com/mpaperno/SBA
  
 
-=head1 Copyright, License, and Disclaimer
+=head2 Copyright, License, and Disclaimer
 
 Copyright (c) 2014 by Maxim Paperno. All rights reserved.
 
