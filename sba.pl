@@ -106,6 +106,8 @@ my %buildConfigDefaults = (
 (my $logFileName = $PROG) =~ s/\..+$//;
 my $logFileSfx	= ".log";
 my $logNull = ($^O eq "MSWin32") ? "NUL" : "/dev/null";
+my $svnCheckLocalCmd = "svn info";
+my $svnCheckRemoteCmd = "svn info -r HEAD";
 my $svnUpdtCmd = "svn update -r HEAD --force";
 
 
@@ -278,12 +280,12 @@ if ($logFolder ) {
 
 # get local svn version
 &log("Checking local version...");
-$localRev = &svnVersion("local");
+$localRev = &svnVersion($svnCheckLocalCmd);
 &log("Local revision: $localRev");
 
 # get remote svn version
 &log("Checking remote version...");
-$remoteRev = &svnVersion("remote");
+$remoteRev = &svnVersion($svnCheckRemoteCmd);
 &log("Remote revision: $remoteRev");
 
 # compare revision numbers
@@ -508,7 +510,7 @@ END: {
 #
 
 # handle all script output here, includign fatal errors. Use instead of print/warn/die().
-# Usage: &log([severity,] text);
+# Usage: &log([severity,] text, [caller]);
 # severity levels: 
 # 	0=fatal (force exit); 1=error; 2=warning; 3=info (default); 4=verbose info; 5=debug;
 # Sll output is sent to STDOUT unless $QUIET is true. All output is saved to $OUTPUT. 
@@ -518,8 +520,8 @@ sub log {
 	my $lvl = ($_[0] =~ /^\d$/) ? shift : 3;
 	my $msg = shift;
 	return 0 if (!$msg || ($lvl == 5 && !$DEBUG));
-	
-	my ($clr_p, $clr_f, $clr_l) = caller;
+
+	my ($clr_p, $clr_f, $clr_l) = (@_) ? ($_[0], $_[1], $_[2]) : caller;
 	my $dt = strftime "%m/%d/%y %H:%M:%S", localtime;
 	my $typName = "INF";
 	for ($lvl) {
@@ -557,27 +559,26 @@ sub log {
 }
 
 # some aliases for the above &log function
-sub _out { &log(3, @_); }	# STDOUT handler
-sub _warn { &log(2, @_); }	# SIG_WARN handler
-sub _err { &log(1, @_); }	# STDERR handler
-sub _die { &log(0, @_); }	# SIG_DIE handler
-sub _dbg { &log(5, @_); }	# debug shortcut
+sub _out { &log(3, @_, caller); }	# STDOUT handler
+sub _warn { &log(2, @_, caller); }	# SIG_WARN handler
+sub _err { &log(1, @_, caller); }	# STDERR handler
+sub _die { &log(0, @_, caller); }	# SIG_DIE handler
+sub _dbg { &log(5, @_, caller); }	# debug shortcut
 
 
 # get revision number from svn repo
 # Returns: numeric revision number
-# Usage: svnVersion("local|remote");
+# Usage: svnVersion("svn update") or svnVersion("svn update -r HEAD");
 sub svnVersion {
-	my $type = shift(@_);
-	my $rev;
+	my $cmd = join(" ", @_);
 	my $ret = "";
 	
-	if ($type eq "local") {
-		$rev = `svn info`;
-	} else {
-		$rev = `svn info -r HEAD`;
+	my $rev = `$cmd`;
+	if ($?) {
+		&_warn("Could not get '$cmd', retrying...");
+		$rev = `$cmd`;
 	}
-	if ($?) { &_die("Could not get svn info."); }
+	if ($?) { &_die("Could not get '$cmd'."); }
 	($ret) = ($rev =~ m/^Revision..(\d+)$/m);
 	
 	return $ret;
